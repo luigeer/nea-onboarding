@@ -1,0 +1,20 @@
+# ── Datos de clientes: NUNCA se versionan ────────────────────────────────────
+# El repositorio guarda el programa; los expedientes viven en tu disco, en
+# Drive y en Supabase. Un repo de GitHub no es lugar para CURP, RFC ni
+# domicilios de personas reales.
+out/
+expedientes/
+descargas/
+prueba/
+*.pdf
+!assets/*.pdf
+
+# ── Secretos ─────────────────────────────────────────────────────────────────
+.env
+.credenciales/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
