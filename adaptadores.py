@@ -342,7 +342,7 @@ def _id_oficial(tipo_texto):
     return "ife"
 
 
-ADAPTADORES = {
+_CRUDOS = {
     "contrato": para_contrato,
     "pld_pm": para_pld_pm,
     "pld_pf": para_pld_pf,
@@ -352,3 +352,45 @@ ADAPTADORES = {
     "adenda_os_pf": para_adenda_pf,
     "domiciliacion": para_domiciliacion,
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Campos sin llenar
+# ─────────────────────────────────────────────────────────────────────────────
+# Un expediente nuevo casi nunca trae los 116 campos. Los generadores dibujan
+# con reportlab, que revienta al recibir None, así que aquí se cambia por
+# cadena vacía: el documento sale con el espacio en blanco en lugar de no salir.
+#
+# Solo se tocan las claves que existen con valor None. Las que el adaptador
+# omite a propósito siguen ausentes, que es lo que distingue "no aplica" de
+# "falta" en generar_adenda_pf.
+def _limpiar(valor, ruta, vacios):
+    if valor is None:
+        vacios.append(ruta)
+        return ""
+    if isinstance(valor, dict):
+        return {k: _limpiar(v, "%s.%s" % (ruta, k) if ruta else k, vacios)
+                for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [_limpiar(v, "%s[%d]" % (ruta, i), vacios)
+                for i, v in enumerate(valor)]
+    return valor
+
+
+def campos_en_blanco(exp, clave):
+    """Qué campos van a salir vacíos en ese documento. Para avisar antes de
+    generar, porque un contrato con huecos silenciosos es peor que un error."""
+    vacios = []
+    _limpiar(_CRUDOS[clave](exp), "", vacios)
+    return vacios
+
+
+def _saneado(fn):
+    def envoltura(exp):
+        return _limpiar(fn(exp), "", [])
+    envoltura.__name__ = fn.__name__
+    envoltura.__doc__ = fn.__doc__
+    return envoltura
+
+
+ADAPTADORES = {clave: _saneado(fn) for clave, fn in _CRUDOS.items()}

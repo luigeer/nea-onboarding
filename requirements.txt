@@ -1,5 +1,11 @@
+# Generación y lectura de documentos
 pypdf>=5.0
 reportlab>=4.0
 pdfplumber>=0.11
+
+# Base de datos (opcional: sin esto funciona en local)
+supabase>=2.0
+
+# Google Drive (opcional)
 google-api-python-client
 google-auth-oauthlib

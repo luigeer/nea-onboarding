@@ -1,0 +1,167 @@
+-- ============================================================================
+-- Nea — Plataforma de onboarding · Esquema de la base
+-- ============================================================================
+-- Cómo usarlo: copia TODO este archivo, pégalo en el SQL Editor de Supabase y
+-- dale "Run". Se puede volver a ejecutar sin romper nada (todo es IF NOT
+-- EXISTS / OR REPLACE).
+--
+-- Diseño: la tabla `expedientes` guarda el expediente completo en la columna
+-- `datos` (formato JSON, los 116 campos del schema) más unas cuantas columnas
+-- "promovidas" que son por las que se filtra y se hacen cuentas. Así no hay
+-- que modelar 116 columnas y nada se pierde.
+--
+-- Las tablas hijas existen porque responden preguntas que cruzan expedientes:
+-- la exposición agregada de un obligado solidario, las vigencias por vencer y
+-- el rastro de quién aceptó cada observación.
+-- ============================================================================
+
+-- ── Expedientes ─────────────────────────────────────────────────────────────
+create table if not exists expedientes (
+  folio             text primary key,
+  razon_social      text not null,
+  rfc               text not null,
+  tipo_cliente      text not null
+                    check (tipo_cliente in ('persona_moral', 'pfae', 'persona_fisica')),
+  etapa             text not null default 'apertura',
+  grupo             text,
+  linea_solicitada  numeric(14,2),
+  linea_modelo      numeric(14,2),   -- lo que propone el modelo de riesgo
+  linea_autorizada  numeric(14,2),   -- lo que autoriza Luis; el modelo propone, no aprueba
+  riesgo_pld        text check (riesgo_pld in ('bajo', 'medio', 'alto')),
+  carpeta_drive     text,
+  motivo_rechazo    text,
+  datos             jsonb not null default '{}'::jsonb,
+  creado            timestamptz not null default now(),
+  actualizado       timestamptz not null default now()
+);
+
+create index if not exists expedientes_rfc_idx   on expedientes (rfc);
+create index if not exists expedientes_etapa_idx on expedientes (etapa);
+
+-- ── Beneficiarios controladores ─────────────────────────────────────────────
+-- Tabla propia para poder buscar a una misma persona en varios expedientes,
+-- que es lo que necesita el screening en listas.
+create table if not exists beneficiarios (
+  id          uuid primary key default gen_random_uuid(),
+  folio       text not null references expedientes(folio) on delete cascade,
+  nombre      text not null,
+  rfc         text,
+  curp        text,
+  porcentaje  numeric(5,2),
+  criterio    text,              -- participacion | control_efectivo
+  pep         boolean,
+  creado      timestamptz not null default now()
+);
+
+create index if not exists beneficiarios_curp_idx  on beneficiarios (curp);
+create index if not exists beneficiarios_folio_idx on beneficiarios (folio);
+
+-- ── Obligados solidarios ────────────────────────────────────────────────────
+create table if not exists obligados_solidarios (
+  id              uuid primary key default gen_random_uuid(),
+  folio           text not null references expedientes(folio) on delete cascade,
+  tipo            text check (tipo in ('persona_moral', 'persona_fisica')),
+  nombre          text not null,
+  rfc             text,
+  es_cliente      boolean not null default false,
+  expediente_ref  text,
+  creado          timestamptz not null default now()
+);
+
+create index if not exists obligados_rfc_idx on obligados_solidarios (rfc);
+
+-- ── Observaciones ───────────────────────────────────────────────────────────
+-- El rastro de cumplimiento: una advertencia aceptada sin justificación escrita
+-- no es exigible, así que aquí queda quién la aceptó y por qué.
+create table if not exists observaciones (
+  id            uuid primary key default gen_random_uuid(),
+  folio         text not null references expedientes(folio) on delete cascade,
+  tipo          text,
+  descripcion   text not null,
+  severidad     text check (severidad in ('bloqueante', 'advertencia')),
+  estado        text check (estado in ('abierta', 'resuelta', 'aceptada')),
+  aceptada_por  text,
+  justificacion text,
+  fecha         date not null default current_date
+);
+
+-- ── Documentos ──────────────────────────────────────────────────────────────
+create table if not exists documentos (
+  id             uuid primary key default gen_random_uuid(),
+  folio          text not null references expedientes(folio) on delete cascade,
+  tipo           text not null,
+  sujeto         text,           -- de quién es, cuando hay varios (beneficiarios)
+  fecha_emision  date,
+  vigente_hasta  date,
+  legible        boolean not null default true,
+  drive_file_id  text,
+  superado       boolean not null default false
+);
+
+create index if not exists documentos_vigencia_idx on documentos (vigente_hasta);
+
+-- ── Exposición agregada ─────────────────────────────────────────────────────
+-- La pregunta que hoy no se puede contestar porque cada expediente se analiza
+-- aislado: si una tenedora tiene línea propia de un millón y garantiza dos
+-- millones más, la exposición real es de tres.
+create or replace view exposicion_agregada as
+with garantias as (
+  select
+    o.rfc,
+    max(o.nombre)                        as nombre,
+    count(distinct o.folio)              as expedientes_garantizados,
+    coalesce(sum(e.linea_autorizada), 0) as suma_garantizada
+  from obligados_solidarios o
+  join expedientes e on e.folio = o.folio
+  where o.rfc is not null
+  group by o.rfc
+)
+select
+  g.rfc,
+  g.nombre,
+  g.expedientes_garantizados,
+  g.suma_garantizada,
+  coalesce(p.linea_autorizada, 0)                       as linea_propia,
+  g.suma_garantizada + coalesce(p.linea_autorizada, 0)  as exposicion_total
+from garantias g
+left join expedientes p on p.rfc = g.rfc;
+
+-- ── Documentos por vencer ───────────────────────────────────────────────────
+create or replace view vigencias_por_vencer as
+select
+  d.folio,
+  e.razon_social,
+  d.tipo,
+  d.sujeto,
+  d.vigente_hasta,
+  (d.vigente_hasta - current_date) as dias_restantes
+from documentos d
+join expedientes e on e.folio = d.folio
+where d.superado = false
+  and d.vigente_hasta is not null
+  and d.vigente_hasta <= current_date + 30
+order by d.vigente_hasta;
+
+-- ── Marca de tiempo automática ──────────────────────────────────────────────
+create or replace function tocar_actualizado() returns trigger as $$
+begin
+  new.actualizado = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists expedientes_actualizado on expedientes;
+create trigger expedientes_actualizado
+  before update on expedientes
+  for each row execute function tocar_actualizado();
+
+-- ── Seguridad ───────────────────────────────────────────────────────────────
+-- Se prende RLS sin políticas: eso significa que la llave pública (anon) NO
+-- puede leer ni escribir nada. Solo la llave de servicio, que vive en tu
+-- archivo .env local y nunca sale de tu computadora, tiene acceso.
+-- Aquí hay CURP, RFC y domicilios de personas reales: es el default correcto.
+alter table expedientes          enable row level security;
+alter table beneficiarios        enable row level security;
+alter table obligados_solidarios enable row level security;
+alter table observaciones        enable row level security;
+alter table documentos           enable row level security;

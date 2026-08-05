@@ -128,6 +128,12 @@ def _campos(pares, S, cols=2):
     if buffer:
         filas.append(buffer + [""] * (cols - len(buffer)))
 
+    # Un expediente nuevo puede no traer ningún dato de esta sección todavía.
+    # reportlab no acepta tablas vacías, así que se deja constancia del hueco
+    # en lugar de reventar: el formato sale y se ve qué falta.
+    if not filas:
+        return Paragraph("<i>Sin información capturada.</i>", S["cuerpo"])
+
     t = Table(filas, colWidths=[anchos_par] * cols)
     estilo = [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
