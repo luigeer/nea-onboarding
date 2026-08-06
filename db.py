@@ -18,6 +18,8 @@ Uso:
     python db.py listar                    todos los expedientes y su etapa
     python db.py ver <FOLIO>               baja el expediente a la pantalla
     python db.py bajar <FOLIO> <archivo>   baja el expediente a un archivo
+    python db.py personas <FOLIO>          quién es quién en ese expediente
+    python db.py recurrentes               personas que aparecen en varios expedientes
     python db.py exposicion                exposición agregada por obligado
     python db.py vigencias                 documentos que vencen en 30 días
 """
@@ -29,7 +31,7 @@ import sys
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 RUTA_ENV = os.path.join(RAIZ, ".env")
 
-TABLAS_HIJAS = ("beneficiarios", "obligados_solidarios", "observaciones", "documentos")
+TABLAS_HIJAS = ("personas", "obligados_solidarios", "observaciones", "documentos")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +143,108 @@ def _fila_expediente(exp):
     }
 
 
+def _si_no(v):
+    """El schema guarda el PEP como 'Sí'/'No' de texto; la base lo quiere booleano."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("sí", "si", "true", "yes", "1")
+
+
+def _personas(exp):
+    """Todas las personas físicas del expediente, una fila por persona.
+
+    Una misma persona puede ser representante legal, beneficiario controlador
+    y obligado solidario a la vez — en ese caso es un renglón con tres
+    banderas, no tres renglones. Es el mismo criterio con el que el manifiesto
+    de la etapa 6 agrupa las firmas por personas y no por calidades.
+    """
+    from extraer_csf import _tokens_nombre
+
+    filas = []
+
+    def fundir(datos, calidad):
+        """Busca a la persona por RFC, CURP o nombre; si no está, la agrega."""
+        rfc = (datos.get("rfc") or "").upper() or None
+        curp = (datos.get("curp") or "").upper() or None
+        tokens = _tokens_nombre(datos.get("nombre"))
+        if not (rfc or curp or tokens):
+            return None
+
+        fila = next((f for f in filas
+                     if (rfc and f["rfc"] == rfc)
+                     or (curp and f["curp"] == curp)
+                     or (tokens and f["_tokens"] == tokens)), None)
+        if fila is None:
+            fila = {"_tokens": tokens, "nombre": datos.get("nombre") or "(sin nombre)",
+                    "rfc": rfc, "curp": curp,
+                    "es_representante": False, "es_beneficiario": False,
+                    "es_obligado": False, "es_cofirmante": False}
+            filas.append(fila)
+        fila[calidad] = True
+        # Lo que ya está no se pisa: cada fuente completa lo que la otra no trae.
+        for k, v in datos.items():
+            if k != "nombre" and v not in (None, "") and fila.get(k) in (None, ""):
+                fila[k] = v.upper() if k in ("rfc", "curp") else v
+        return fila
+
+    rep = _g(exp, "representante_legal.validado", {}) or {}
+    if rep.get("nombre"):
+        ident = rep.get("identificacion") or {}
+        fac = rep.get("facultades") or {}
+        fundir({
+            "nombre": rep.get("nombre"), "rfc": rep.get("rfc"), "curp": rep.get("curp"),
+            "fecha_nacimiento": rep.get("fecha_nacimiento"),
+            "lugar_nacimiento": rep.get("pais_nacimiento"),
+            "nacionalidad": rep.get("pais_nacionalidad"),
+            "cargo": rep.get("cargo"),
+            "id_tipo": ident.get("tipo"), "id_numero": ident.get("numero"),
+            "puede_titulos_credito": fac.get("titulos_credito"),
+            "firma_individual": fac.get("individual"),
+            "limite_monto": fac.get("limite_monto"),
+            "correo": _g(exp, "representante_legal.propuesto.correo"),
+            "telefono": _g(exp, "representante_legal.propuesto.telefono"),
+        }, "es_representante")
+
+    for c in exp.get("cofirmantes") or []:
+        datos = dict(c) if isinstance(c, dict) else {"nombre": c}
+        datos.pop("identificacion", None)
+        fundir(datos, "es_cofirmante")
+
+    for b in exp.get("beneficiarios_controladores") or []:
+        ident = b.get("identificacion") or {}
+        fundir({
+            "nombre": b.get("nombre"), "rfc": b.get("rfc"), "curp": b.get("curp"),
+            "fecha_nacimiento": b.get("fecha_nacimiento"),
+            "lugar_nacimiento": b.get("lugar_nacimiento"),
+            "nacionalidad": b.get("nacionalidad"), "ocupacion": b.get("ocupacion"),
+            "domicilio": b.get("domicilio"), "cargo": b.get("cargo"),
+            "id_tipo": ident.get("tipo"), "id_numero": ident.get("dato"),
+            "porcentaje": _g(b, "participacion.porcentaje"),
+            "criterio": exp.get("criterio_identificacion"),
+            "pep": _si_no(b.get("pep")),
+        }, "es_beneficiario")
+
+    if _g(exp, "flags.obligado_solidario") and \
+            _g(exp, "obligado_solidario.tipo") == "persona_fisica":
+        pf = _g(exp, "obligado_solidario.persona_fisica", {}) or {}
+        ident = pf.get("identificacion") or {}
+        fundir({
+            "nombre": pf.get("nombre"), "rfc": pf.get("rfc"), "curp": pf.get("curp"),
+            "fecha_nacimiento": pf.get("fecha_lugar_nacimiento"),
+            "nacionalidad": pf.get("nacionalidad"), "ocupacion": pf.get("ocupacion"),
+            "domicilio": pf.get("domicilio"), "correo": pf.get("correo"),
+            "telefono": pf.get("telefono"),
+            "id_tipo": ident.get("tipo"), "id_numero": ident.get("numero"),
+        }, "es_obligado")
+
+    for f in filas:
+        f.pop("_tokens", None)
+        f["folio"] = exp["folio"]
+    return filas
+
+
 def guardar(exp, sb=None):
     """Sube o actualiza un expediente completo.
 
@@ -158,16 +262,9 @@ def guardar(exp, sb=None):
     for tabla in TABLAS_HIJAS:
         sb.table(tabla).delete().eq("folio", folio).execute()
 
-    benes = [{
-        "folio": folio,
-        "nombre": b.get("nombre") or "(sin nombre)",
-        "rfc": b.get("rfc"), "curp": b.get("curp"),
-        "porcentaje": _g(b, "participacion.porcentaje"),
-        "criterio": exp.get("criterio_identificacion"),
-        "pep": None if b.get("pep") is None else str(b.get("pep")).strip().lower() in ("sí", "si", "true", "yes"),
-    } for b in exp.get("beneficiarios_controladores", [])]
-    if benes:
-        sb.table("beneficiarios").insert(benes).execute()
+    gente = _personas(exp)
+    if gente:
+        sb.table("personas").insert(gente).execute()
 
     if _g(exp, "flags.obligado_solidario"):
         os_ = exp.get("obligado_solidario", {})
@@ -234,6 +331,18 @@ def vigencias(sb=None):
     return sb.table("vigencias_por_vencer").select("*").execute().data
 
 
+def recurrentes(sb=None):
+    """Personas que aparecen en más de un expediente. Insumo del screening."""
+    sb = sb or cliente()
+    return sb.table("personas_recurrentes").select("*").order(
+        "expedientes", desc=True).execute().data
+
+
+def personas(folio, sb=None):
+    sb = sb or cliente()
+    return sb.table("personas").select("*").eq("folio", folio).execute().data
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,6 +394,28 @@ def main(argv):
                     f["rfc"], (f["nombre"] or "")[:38], f["expedientes_garantizados"],
                     _pesos(f["suma_garantizada"]), _pesos(f["linea_propia"]),
                     _pesos(f["exposicion_total"])))
+
+        elif orden == "personas" and len(args) == 1:
+            filas = personas(args[0], sb)
+            if not filas:
+                print("Ninguna persona registrada en %s todavía." % args[0])
+            for f in filas:
+                calidades = [n for n, k in (("representante", "es_representante"),
+                                            ("beneficiario", "es_beneficiario"),
+                                            ("obligado solidario", "es_obligado"),
+                                            ("cofirmante", "es_cofirmante")) if f.get(k)]
+                print("%-34s %-14s %s" % (
+                    (f["nombre"] or "")[:34], f.get("rfc") or "—",
+                    ", ".join(calidades) or "sin calidad"))
+
+        elif orden == "recurrentes":
+            filas = recurrentes(sb)
+            if not filas:
+                print("Nadie aparece todavía en más de un expediente.")
+            for f in filas:
+                print("%-34s %d expedientes: %s" % (
+                    (f["nombre"] or "")[:34], f["expedientes"],
+                    ", ".join(f["folios"])))
 
         elif orden == "vigencias":
             filas = vigencias(sb)

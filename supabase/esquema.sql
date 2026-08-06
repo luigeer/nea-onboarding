@@ -38,23 +38,52 @@ create table if not exists expedientes (
 create index if not exists expedientes_rfc_idx   on expedientes (rfc);
 create index if not exists expedientes_etapa_idx on expedientes (etapa);
 
--- ── Beneficiarios controladores ─────────────────────────────────────────────
--- Tabla propia para poder buscar a una misma persona en varios expedientes,
--- que es lo que necesita el screening en listas.
-create table if not exists beneficiarios (
-  id          uuid primary key default gen_random_uuid(),
-  folio       text not null references expedientes(folio) on delete cascade,
-  nombre      text not null,
-  rfc         text,
-  curp        text,
-  porcentaje  numeric(5,2),
-  criterio    text,              -- participacion | control_efectivo
-  pep         boolean,
-  creado      timestamptz not null default now()
+-- ── Personas ────────────────────────────────────────────────────────────────
+-- Una fila por persona física, con sus calidades como banderas. Una misma
+-- persona puede ser representante legal, beneficiario controlador y obligado
+-- solidario a la vez; eso es un renglón con tres banderas, no tres renglones.
+-- Mismo criterio que el manifiesto de firmantes de la etapa 6, que agrupa por
+-- conjunto de personas y no de calidades.
+create table if not exists personas (
+  id                uuid primary key default gen_random_uuid(),
+  folio             text not null references expedientes(folio) on delete cascade,
+
+  nombre            text not null,
+  rfc               text,
+  curp              text,
+  fecha_nacimiento  text,          -- como lo da la CURP: dd/mm/aaaa
+  lugar_nacimiento  text,
+  nacionalidad      text,
+  ocupacion         text,
+  domicilio         text,
+  correo            text,
+  telefono          text,
+  id_tipo           text,
+  id_numero         text,
+
+  es_representante  boolean not null default false,
+  es_beneficiario   boolean not null default false,
+  es_obligado       boolean not null default false,
+  es_cofirmante     boolean not null default false,
+
+  -- Solo como beneficiario controlador
+  porcentaje        numeric(5,2),
+  criterio          text,          -- participacion | control_efectivo
+  pep               boolean,
+
+  -- Solo como representante legal. El límite del poder es compuerta de la
+  -- etapa 6: si es menor a la línea autorizada, no se genera nada.
+  cargo                 text,
+  puede_titulos_credito boolean,
+  firma_individual      boolean,
+  limite_monto          numeric(14,2),
+
+  creado            timestamptz not null default now()
 );
 
-create index if not exists beneficiarios_curp_idx  on beneficiarios (curp);
-create index if not exists beneficiarios_folio_idx on beneficiarios (folio);
+create index if not exists personas_folio_idx on personas (folio);
+create index if not exists personas_rfc_idx   on personas (rfc);
+create index if not exists personas_curp_idx  on personas (curp);
 
 -- ── Obligados solidarios ────────────────────────────────────────────────────
 create table if not exists obligados_solidarios (
@@ -126,6 +155,21 @@ select
 from garantias g
 left join expedientes p on p.rfc = g.rfc;
 
+-- ── Una persona a través de varios expedientes ──────────────────────────────
+-- El insumo del screening en listas: quién se repite y con qué calidad.
+create or replace view personas_recurrentes as
+select
+  coalesce(nullif(rfc, ''), nullif(curp, ''), upper(nombre)) as identificador,
+  max(nombre)                  as nombre,
+  count(distinct folio)        as expedientes,
+  array_agg(distinct folio)    as folios,
+  bool_or(es_representante)    as fue_representante,
+  bool_or(es_beneficiario)     as fue_beneficiario,
+  bool_or(es_obligado)         as fue_obligado
+from personas
+group by 1
+having count(distinct folio) > 1;
+
 -- ── Documentos por vencer ───────────────────────────────────────────────────
 create or replace view vigencias_por_vencer as
 select
@@ -161,7 +205,7 @@ create trigger expedientes_actualizado
 -- archivo .env local y nunca sale de tu computadora, tiene acceso.
 -- Aquí hay CURP, RFC y domicilios de personas reales: es el default correcto.
 alter table expedientes          enable row level security;
-alter table beneficiarios        enable row level security;
+alter table personas             enable row level security;
 alter table obligados_solidarios enable row level security;
 alter table observaciones        enable row level security;
 alter table documentos           enable row level security;
