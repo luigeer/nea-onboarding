@@ -5,6 +5,14 @@ Documento de contexto para continuar el desarrollo en Claude Code.
 
 Última actualización: 29 de julio de 2026
 
+> **Nota del 6 de agosto de 2026 — la arquitectura cambió.** El estado de los
+> expedientes ya **no vive en Notion** sino en una base de datos propia
+> (Supabase), y la plataforma corre local con un solo comando, `nea.py`. El
+> resto de este documento —las nueve etapas, las compuertas, el catálogo de
+> documentos y los criterios de PLD— sigue vigente y es la fuente de verdad
+> funcional. Donde diga "Notion", léase "la base de datos". Para operar, ver
+> `LEEME.md`.
+
 ---
 
 ## 1. Alcance
