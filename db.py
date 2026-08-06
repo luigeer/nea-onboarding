@@ -50,6 +50,17 @@ def _leer_env():
     for clave in ("SUPABASE_URL", "SUPABASE_KEY"):
         if os.environ.get(clave):
             valores[clave] = os.environ[clave]
+
+    # El panel de Supabase muestra la dirección con /rest/v1/ al final, pero la
+    # librería la agrega sola. Se recorta aquí para que copiar y pegar lo que
+    # dice la pantalla simplemente funcione.
+    url = valores.get("SUPABASE_URL")
+    if url:
+        url = url.strip().rstrip("/")
+        for sufijo in ("/rest/v1", "/rest"):
+            if url.endswith(sufijo):
+                url = url[: -len(sufijo)]
+        valores["SUPABASE_URL"] = url.rstrip("/")
     return valores
 
 
