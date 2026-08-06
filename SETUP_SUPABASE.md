@@ -26,21 +26,37 @@ Toma unos cinco minutos.
 
 Debe decir *Success*. Si lo vuelves a correr no pasa nada malo.
 
-## 3. Copiar las dos llaves
+## 3. Copiar la dirección y la llave
 
-1. Menú de la izquierda, hasta abajo: **Project Settings** → **API Keys**
-2. Copia el **Project URL** (algo como `https://abcdefgh.supabase.co`)
-3. Copia la llave **`service_role`** — *no* la `anon`
-4. En la carpeta del proyecto, crea un archivo llamado exactamente `.env` con
-   estas dos líneas:
+**La dirección** no está en la pantalla de llaves, sino en **Project Settings →
+Data API** (o se lee de la barra del navegador: si dice
+`/dashboard/project/abcdefgh/...`, tu dirección es `https://abcdefgh.supabase.co`).
+Si la copias de la pantalla viene con `/rest/v1/` al final; da igual, el programa
+lo recorta solo.
+
+**La llave** está en **Project Settings → API Keys**, sección **Secret keys**:
+la que empieza con `sb_secret_`. Dale al ojito para revelarla y luego al icono de
+copiar. *No* sirve la **Publishable** ni la **anon**: esas no pueden escribir.
+(En proyectos viejos la equivalente es `service_role`, en la pestaña *Legacy*.)
+
+Con eso, el archivo `.env` en la carpeta del proyecto queda así:
 
 ```
 SUPABASE_URL=https://abcdefgh.supabase.co
-SUPABASE_KEY=eyJhbGciOi...la-llave-larga...
+SUPABASE_KEY=sb_secret_...
 ```
 
+Dos trampas de Windows que cuestan tiempo:
+
+- El Bloc de notas le agrega `.txt` al guardar un archivo nuevo. Lo más fácil es
+  copiar `.env.ejemplo`, renombrarlo a `.env` y editarlo.
+- Escribir en la ventana no es guardar. Si el título dice `*.env` con asterisco,
+  falta **Ctrl+S**.
+
 El archivo `.env` está en `.gitignore`: **nunca** se sube a GitHub. Esa llave da
-acceso total a la base, trátala como una contraseña.
+acceso total a la base, trátala como una contraseña — y si alguna vez queda
+expuesta (una captura de pantalla, un correo), genera una nueva con **New secret
+key** y revoca la anterior.
 
 ## 4. Probar
 
