@@ -113,7 +113,7 @@ def _config():
     return llave, ENTORNOS[entorno], entorno
 
 
-def pedir(ruta, params=None, metodo="GET", cuerpo=None):
+def pedir(ruta, params=None, metodo="GET", cuerpo=None, headers=None):
     """Una llamada a la API. Devuelve el JSON ya parseado."""
     llave, base, _ = _config()
     url = base + ruta
@@ -125,6 +125,8 @@ def pedir(ruta, params=None, metodo="GET", cuerpo=None):
     req = urllib.request.Request(url, data=datos, method=metodo)
     req.add_header("X-API-Key", llave)
     req.add_header("Accept", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     if datos:
         req.add_header("Content-Type", "application/json")
 
@@ -152,9 +154,16 @@ def _lista(respuesta):
 # Entidades
 # ─────────────────────────────────────────────────────────────────────────────
 def buscar_entidad(rfc):
-    """Devuelve la entidad de Syntage cuyo identificador fiscal es ese RFC."""
-    for fila in _lista(pedir("/entities", {"taxpayerId": rfc.upper()})):
-        return fila
+    """Devuelve la entidad de Syntage cuyo RFC es ese.
+
+    El filtro de la API es de coincidencia parcial, así que hay que comparar
+    exacto: buscar 'GPS200810ICA' no debe traer a otro contribuyente cuyo RFC
+    lo contenga.
+    """
+    rfc = rfc.upper().strip()
+    for fila in _lista(pedir("/entities", {"taxpayer.id": rfc})):
+        if ((fila.get("taxpayer") or {}).get("id") or "").upper() == rfc:
+            return fila
     return None
 
 
@@ -177,15 +186,34 @@ def id_entidad(rfc, crear=False):
 # ─────────────────────────────────────────────────────────────────────────────
 # Credenciales del SAT
 # ─────────────────────────────────────────────────────────────────────────────
+VIGENTES = ("valid", "active")
+
+
+def _resumir_credencial(c):
+    return {"id": c.get("id"), "rfc": c.get("rfc") or c.get("taxpayerId"),
+            "tipo": c.get("type"), "estado": c.get("status"),
+            "vigente": c.get("status") in VIGENTES,
+            "motivo": c.get("statusReason"),
+            "actualizada": c.get("updatedAt") or c.get("createdAt")}
+
+
+def credencial_de(entidad):
+    """La credencial viene embebida en la entidad, no hay que pedirla aparte."""
+    c = entidad.get("credential")
+    return _resumir_credencial(c) if c else None
+
+
 def estado_credenciales(entidad_id=None):
     """Compuerta antes de que riesgo dependa de datos del SAT.
 
-    Las credenciales se caen y los datos derivados quedan viejos sin avisar.
+    Las credenciales se caen y los datos derivados quedan viejos sin avisar,
+    por eso existe `revalidate`. Sin credencial vigente no hay declaración
+    anual ni CFDI.
     """
-    filas = _lista(pedir("/credentials", {"entityId": entidad_id} if entidad_id else None))
-    return [{"id": c.get("id"), "rfc": c.get("taxpayerId") or c.get("rfc"),
-             "estado": c.get("status"), "vigente": c.get("status") in ("valid", "active"),
-             "actualizada": c.get("updatedAt") or c.get("createdAt")} for c in filas]
+    if entidad_id:
+        c = credencial_de(pedir("/entities/%s" % entidad_id))
+        return [c] if c else []
+    return [_resumir_credencial(c) for c in _lista(pedir("/credentials"))]
 
 
 def revalidar_credencial(credencial_id):
@@ -204,8 +232,9 @@ def declaracion_datos(tax_return_id):
     return pedir("/tax-returns/%s/data" % tax_return_id)
 
 
-def insight(entidad_id, nombre, **params):
-    return pedir("/entities/%s/insights/%s" % (entidad_id, nombre), params or None)
+def insight(entidad_id, nombre, headers=None, **params):
+    return pedir("/entities/%s/insights/%s" % (entidad_id, nombre),
+                 params or None, headers=headers)
 
 
 # Todo lo que Syntage sabe de una entidad. Se extrae completo y se guarda
@@ -215,49 +244,67 @@ def insight(entidad_id, nombre, **params):
 #
 # El buró de crédito **no** está aquí a propósito: se extrae por fuera de
 # Syntage por costo, y se captura del reporte PYME Plus.
+# Las rutas están verificadas contra la API real: varias no son donde uno
+# supondría —las de red y las de comparativo cuelgan de `metrics/`— y el
+# balance y el estado de resultados exigen un rango de ejercicios.
 RECURSOS = {
     # alimentan directamente al modelo
-    "metrics/balance-sheet":            "balance",
-    "metrics/income-statement":         "estado de resultados",
-    "financial-ratios":                 "razones financieras",
+    "metrics/balance-sheet":              ("balance", None, {"X-Insight-Format": "2022"}),
+    "metrics/income-statement":           ("estado de resultados", None,
+                                           {"X-Insight-Format": "2022"}),
+    "financial-ratios":                   ("razones financieras", None, None),
+    "trial-balance":                      ("balanza de comprobación", None, None),
     # señales que el modelo no captura pero que mueven la decisión
-    "customer-concentration":           "concentración de clientes",
-    "vendor-concentration":             "concentración de proveedores",
-    "employees":                        "empleados",
-    "government-customers":             "ventas a gobierno",
-    "moratory-interest":                "intereses moratorios",
-    "cash-flow-stats":                  "flujo de efectivo",
-    "accounts-receivable":              "cuentas por cobrar",
-    "accounts-payable":                 "cuentas por pagar",
-    "financial-institutions":           "instituciones financieras",
-    "invoicing-blacklist":              "lista negra 69-B",
-    "invoicing-annual-comparison":      "comparativo anual de facturación",
-    "sales-revenue":                    "ingresos por ventas",
-    "expenditures":                     "gastos",
-    "risks":                            "riesgos",
-    "scores":                           "scores",
-    "summary":                          "resumen",
-    "trial-balance":                    "balanza de comprobación",
-    "customer-network":                 "red de clientes",
-    "vendor-network":                   "red de proveedores",
+    "customer-concentration":             ("concentración de clientes", None, None),
+    "supplier-concentration":             ("concentración de proveedores", None, None),
+    "employees":                          ("empleados", None, None),
+    "government-customers":               ("ventas a gobierno", None, None),
+    "moratory-interest":                  ("intereses moratorios", None, None),
+    "cash-flow-stats":                    ("flujo de efectivo", None, None),
+    "accounts-receivable":                ("cuentas por cobrar", None, None),
+    "accounts-payable":                   ("cuentas por pagar", None, None),
+    "financial-institutions":             ("instituciones financieras", None, None),
+    "invoicing-blacklist":                ("lista negra 69-B", None, None),
+    "invoicing-concentration#emitidas":   ("concentración de facturación emitida",
+                                           {"options[type]": "issued"}, None),
+    "invoicing-concentration#recibidas":  ("concentración de facturación recibida",
+                                           {"options[type]": "received"}, None),
+    "metrics/invoicing-annual-comparison": ("comparativo anual de facturación", None, None),
+    "metrics/scores":                     ("scores", None, None),
+    "metrics/customer-network":           ("red de clientes", None, None),
+    "metrics/vendor-network":             ("red de proveedores", None, None),
+    "sales-revenue":                      ("ingresos por ventas", None, None),
+    "expenditures":                       ("gastos", None, None),
+    "products-and-services-sold":         ("productos y servicios vendidos", None, None),
+    "products-and-services-bought":       ("productos y servicios comprados", None, None),
+    "risks":                              ("riesgos", None, None),
+    "summary":                            ("resumen", None, None),
     # sociedad y control
-    "shareholders":                     "accionistas",
-    "rpc-shareholders":                 "accionistas según el RPC",
-    "corporate-structure/current-powers": "poderes vigentes",
+    "shareholders":                       ("accionistas", {"relations.relationType": "shareholders"}, None),
+    "rpc-shareholders":                   ("accionistas según el RPC", None, None),
+    "corporate-structure/current-powers": ("poderes vigentes", None, None),
 }
 
 
-def extraer_todo(entidad_id, recursos=None):
+def extraer_todo(entidad_id, recursos=None, desde="2019-01-01", hasta=None):
     """Barre todos los insights y devuelve {recurso: payload} más los fallos.
 
     Lo que falle no detiene el barrido: se anota y se sigue. Un plan sin cierto
     recurso, o una entidad sin autorización para cierta fuente, son casos
     normales y no deben tumbar la extracción completa.
     """
+    from datetime import date
+    hasta = hasta or date.today().isoformat()
     salida, fallos = {}, {}
     for ruta in (recursos or RECURSOS):
+        _, params, headers = RECURSOS.get(ruta, (None, None, None))
+        if params:
+            params = {k: v.format(desde=desde, hasta=hasta) if isinstance(v, str) else v
+                      for k, v in params.items()}
+        # El sufijo tras # distingue dos llamadas al mismo endpoint.
         try:
-            salida[ruta] = insight(entidad_id, ruta)
+            salida[ruta] = insight(entidad_id, ruta.split("#")[0],
+                                   headers=headers, **(params or {}))
         except ErrorSyntage as e:
             fallos[ruta] = str(e).splitlines()[0]
     return salida, fallos
@@ -360,7 +407,7 @@ def main(argv):
             datos, fallos = extraer_todo(eid)
             print("Recursos obtenidos: %d de %d" % (len(datos), len(RECURSOS)))
             for k in sorted(datos):
-                print("  ok       %-38s %s" % (k, RECURSOS.get(k, "")))
+                print("  ok       %-38s %s" % (k, RECURSOS.get(k, ("",))[0]))
             for k in sorted(fallos):
                 print("  falta    %-38s %s" % (k, fallos[k]))
             if "--guardar" in args:
