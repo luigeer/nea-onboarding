@@ -79,9 +79,20 @@ OBLIGATORIOS_PF = [
 ]
 
 
-# El obligado solidario garantiza con su patrimonio y firma la adenda, así que
-# se identifica igual que el cliente. No se le piden estados de cuenta: el
-# modelo corre sobre el flujo del acreditado, no sobre el del garante.
+# Del obligado solidario se pide MENOS que del cliente, y la diferencia es
+# deliberada:
+#
+#   - No se le piden estados de cuenta: el modelo corre sobre el flujo del
+#     acreditado, no sobre el del garante.
+#   - **No se identifican sus beneficiarios controladores.** El garante no es
+#     el cliente: no se le abre expediente PLD propio. Lo que hace falta es
+#     saber que la persona que firma la adenda puede obligar a la sociedad, y
+#     eso se lee en el poder, no en la estructura accionaria. Pedir un acta de
+#     asamblea con los porcentajes de participación es una solicitud de más, y
+#     cada solicitud de más es riesgo de perder al cliente.
+#
+# Lo que sí se exige: identificar a la sociedad, identificar a quien firma, y
+# que ese poder alcance para obligarse solidariamente.
 OBLIGADO_PM = [
     ("csf_obligado_solidario",          "Constancia de Situación Fiscal"),
     ("acta_constitutiva_obligado",      "Acta constitutiva"),
@@ -255,15 +266,17 @@ def _completitud(exp, r, hoy):
                      "Se marcó que ya es cliente pero no se dijo cuál es su expediente.",
                      tipo="obligado_solidario")
         elif not os_.get("es_cliente"):
+            # Los documentos del garante los enumera `_obligado_solidario`, uno
+            # por uno. Aquí solo queda el RFC: sale de la CSF y es lo que lo
+            # amarra al buró y al SAT, así que si falta es captura pendiente
+            # nuestra, no un papel que pedirle al cliente.
             nombre = os_.get("razon_social") or _get(exp, "obligado_solidario.persona_fisica.nombre")
             if not os_.get("rfc") and not _get(exp, "obligado_solidario.persona_fisica.rfc"):
-                r.anotar(INTERMEDIA, "Faltan documentos del obligado solidario",
-                         "Se registró %s como obligado pero no hay su documentación."
+                r.anotar(INTERMEDIA, "Falta capturar el RFC del obligado solidario",
+                         "Se registró %s como obligado y no tiene RFC capturado; sin él "
+                         "no se puede consultar su buró ni cruzarlo con el SAT."
                          % (nombre or "un obligado"),
-                         pedir=("Constancia de Situación Fiscal, acta constitutiva, "
-                                "comprobante de domicilio e identificación del "
-                                "obligado solidario"),
-                         tipo="obligado_solidario")
+                         tipo="obligado_solidario", bloquea=(GENERACION,))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -423,14 +436,33 @@ def _obligado_solidario(exp, r, hoy):
                      bloquea=(GENERACION,), sujeto=nombre,
                      motivo="No lo tenemos en el expediente.")
 
-    # Quien firme por el obligado necesita poder para obligarlo solidariamente.
-    apoderados = _get(exp, "obligado_solidario.organo_administracion.apoderados", []) or []
-    if es_moral and apoderados and not any(
-            (a.get("facultades") or {}).get("titulos_credito") for a in apoderados
-            if isinstance(a, dict)):
-        r.anotar(ALTA, "%s: nadie tiene facultad para suscribir títulos de crédito" % nombre,
-                 "Ninguno de los apoderados registrados puede obligar cambiariamente "
-                 "a la sociedad, y la adenda de obligado solidario lo exige.",
+    # Lo único que de verdad hay que probar del garante: que quien firma la
+    # adenda puede obligar a la sociedad. Sirve la facultad para suscribir
+    # títulos de crédito o una cláusula expresa de obligación solidaria —son
+    # dos redacciones del mismo poder y las escrituras usan una u otra—.
+    if not es_moral:
+        return
+
+    apoderados = [a for a in
+                  (_get(exp, "obligado_solidario.organo_administracion.apoderados", []) or [])
+                  if isinstance(a, dict)]
+
+    def obliga(a):
+        f = a.get("facultades") or {}
+        return bool(f.get("titulos_credito") or f.get("obligacion_solidaria"))
+
+    if not apoderados:
+        # Sin poderes capturados no se puede afirmar ni negar: hay que leer la
+        # escritura que ya tenemos, no pedirle nada más al cliente.
+        r.anotar(INTERMEDIA, "%s: falta validar las facultades de quien firma" % nombre,
+                 "No hay apoderados capturados del obligado solidario; sin eso no se "
+                 "puede confirmar que quien firme la adenda pueda obligar a la sociedad.",
+                 tipo="obligado_solidario", bloquea=(GENERACION,), sujeto=nombre)
+    elif not any(obliga(a) for a in apoderados):
+        r.anotar(ALTA, "%s: nadie puede obligar solidariamente a la sociedad" % nombre,
+                 "Ninguno de los apoderados registrados tiene facultad para suscribir "
+                 "títulos de crédito ni para obligarse solidariamente, y la adenda de "
+                 "obligado solidario exige una de las dos.",
                  pedir=("Instrumento que acredite quién puede obligar solidariamente "
                         "a %s" % nombre),
                  tipo="obligado_solidario", bloquea=(GENERACION,), sujeto=nombre)

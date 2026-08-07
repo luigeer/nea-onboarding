@@ -205,6 +205,65 @@ r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
 check(any("mancomunado" in h["asunto"] for h in r.por_gravedad(BAJA)),
       "con cofirmantes baja a informativo")
 
+# ── el obligado solidario ────────────────────────────────────────────────────
+print("Obligado solidario")
+
+
+def con_garante(facultades):
+    """Un expediente completo con un garante persona moral documentado."""
+    e = completo()
+    e["flags"]["obligado_solidario"] = True
+    e["obligado_solidario"] = {
+        "tipo": "persona_moral", "razon_social": "GARANTE, S.A. de C.V.",
+        "rfc": "GAR190415QX3", "rep_legal": "LUCIA MENDEZ",
+        "organo_administracion": {"apoderados": [
+            {"nombre": "LUCIA MENDEZ", "facultades": facultades}]},
+        # El garante tiene accionistas y a propósito no se piden.
+        "beneficiarios_controladores": [
+            {"nombre": "TOMAS VEGA", "participacion": {"porcentaje": 70.0}}],
+    }
+    for clave in ("csf_obligado_solidario", "acta_constitutiva_obligado",
+                  "comprobante_domicilio_obligado"):
+        e["documentos"].append({"tipo": clave, "fecha_emision": "2026-07-05",
+                                "legible": True})
+    e["documentos"].append({"tipo": "identificacion_obligado",
+                            "vigente_hasta": "2030-01-01", "legible": True})
+    return e
+
+
+r = revisar(con_garante({"titulos_credito": True}), hoy=HOY, cobertura=COBERTURA_LLENA)
+check(r.aprobado, "un garante documentado y con poderes no genera hallazgos")
+
+# LO IMPORTANTE: del garante no se identifican beneficiarios controladores.
+texto = solicitud_breve(con_garante({"titulos_credito": True}), r)
+check("TOMAS VEGA" not in texto and "accionist" not in texto.lower(),
+      "y nunca se le piden sus accionistas ni sus beneficiarios controladores")
+
+# Dos redacciones del mismo poder: la escritura usa una u otra.
+r = revisar(con_garante({"obligacion_solidaria": True}), hoy=HOY,
+            cobertura=COBERTURA_LLENA)
+check(r.aprobado, "una cláusula de obligación solidaria vale igual que la cambiaria")
+
+r = revisar(con_garante({"titulos_credito": False}), hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("obligar solidariamente" in h["asunto"] for h in r.por_gravedad(ALTA)),
+      "sin ninguna de las dos facultades es gravedad alta")
+check(r.puede_pasar_a_riesgo, "pero el riesgo del acreditado se puede evaluar igual")
+
+e = con_garante({"titulos_credito": True})
+e["obligado_solidario"]["organo_administracion"]["apoderados"] = []
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any(h["tipo"] == "obligado_solidario" for h in r.por_gravedad(INTERMEDIA)),
+      "sin poderes capturados queda pendiente validarlos")
+check(not any(h.get("pedir") for h in r.hallazgos if h["tipo"] == "obligado_solidario"),
+      "y no se le pide nada al cliente: la escritura ya la tenemos")
+
+e = con_garante({"titulos_credito": True})
+e["documentos"] = [d for d in e["documentos"]
+                   if d["tipo"] != "csf_obligado_solidario"]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check("GARANTE, S.A. de C.V." in solicitud_breve(e, r),
+      "lo que sí falta del garante sale en la misma solicitud que la del cliente")
+
 # ── coherencia ───────────────────────────────────────────────────────────────
 print("Coherencia entre documentos")
 e = completo()
