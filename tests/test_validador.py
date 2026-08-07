@@ -121,11 +121,22 @@ check(not r.puede_generar, "pero no firmar")
 
 print("Insumos del modelo")
 for campo, etiqueta in (("consultas_buro", "buró"), ("ejercicios_fiscales", "fiscal"),
-                        ("perfil_completo", "perfil"), ("estados_cuenta", "estados")):
-    cob = dict(COBERTURA_LLENA)
-    cob[campo] = 0 if campo != "perfil_completo" else False
-    r = revisar(completo(), hoy=HOY, cobertura=cob)
+                        ("estados_cuenta", "estados")):
+    r = revisar(completo(), hoy=HOY, cobertura=dict(COBERTURA_LLENA, **{campo: 0}))
     check(not r.puede_pasar_a_riesgo, "sin %s no se pasa a riesgo" % etiqueta)
+
+# El perfil de empresa lo captura el operador, no el cliente, así que no tiene
+# por qué detener una solicitud de documentos ni el paso a riesgo.
+r = revisar(completo(), hoy=HOY, cobertura=dict(COBERTURA_LLENA, perfil_completo=False))
+check(r.puede_pasar_a_riesgo, "sin perfil de empresa sí se pasa a riesgo")
+check(any("perfil de empresa" in h["asunto"] for h in r.por_gravedad(BAJA)),
+      "pero queda anotado como pendiente del operador")
+
+# La credencial del SAT se autoriza dentro de Syntage, no se le pide al cliente.
+r = revisar(completo(), hoy=HOY, cobertura=dict(COBERTURA_LLENA, credencial_sat_vigente=False))
+check(not r.puede_pasar_a_riesgo, "una credencial del SAT caduca sí detiene riesgo")
+check(any("Syntage" in (h.get("pedir") or "") for h in r.detienen(RIESGO)),
+      "y lo que se pide es volver a autorizar en Syntage, no la contraseña")
 
 r = revisar(completo(), hoy=HOY, cobertura=dict(COBERTURA_LLENA, estados_reconciliados=0))
 check(r.puede_pasar_a_riesgo,

@@ -66,7 +66,6 @@ OBLIGATORIOS_PM = [
     ("comprobante_domicilio", "Comprobante de domicilio de la empresa", (GENERACION,)),
     ("identificacion_rep",    "Identificación oficial vigente del representante legal", (GENERACION,)),
     ("autorizacion_buro",     "Autorización de consulta de buró del representante", AMBAS),
-    ("credencial_sat",        "Credencial del SAT (usuario y contraseña del portal)", AMBAS),
     ("cotizacion",            "Cotización firmada", AMBAS),
 ]
 
@@ -76,7 +75,6 @@ OBLIGATORIOS_PF = [
     ("comprobante_domicilio", "Comprobante de domicilio", (GENERACION,)),
     ("constancia_cuenta_propia", "Constancia de que actúa por cuenta propia o de un tercero", (GENERACION,)),
     ("autorizacion_buro",     "Autorización de consulta de buró", AMBAS),
-    ("credencial_sat",        "Credencial del SAT (usuario y contraseña del portal)", AMBAS),
     ("cotizacion",            "Cotización firmada", AMBAS),
 ]
 
@@ -384,11 +382,26 @@ def _insumos_modelo(exp, r, cobertura):
                  tipo="insumo_modelo", bloquea=(RIESGO,),
                  motivo="Sin la declaración anual no se puede evaluar el balance.")
 
+    # La credencial del SAT no se le pide al cliente: la autoriza dentro de
+    # Syntage, y ahí se verifica que siga vigente. Pedirle el usuario y la
+    # contraseña sería pedirle su CIEC, que es otra conversación.
+    cred = cobertura.get("credencial_sat_vigente")
+    if cred is False:
+        r.anotar(INTERMEDIA, "La credencial del SAT no está vigente en Syntage",
+                 "Sin credencial vigente no hay declaración anual ni CFDI, que son "
+                 "el 27.5% del modelo.",
+                 pedir=("Volver a autorizar la extracción del SAT desde el enlace "
+                        "de Syntage"),
+                 tipo="insumo_modelo", bloquea=(RIESGO,),
+                 motivo="La autorización para consultar tu información fiscal caducó.")
+
     if not cobertura.get("perfil_completo"):
-        r.anotar(INTERMEDIA, "Falta capturar el perfil de empresa",
+        # Baja y sin bloqueo: son cuatro campos que captura el operador, no el
+        # cliente, así que no tienen por qué detener una solicitud de documentos.
+        r.anotar(BAJA, "Falta capturar el perfil de empresa",
                  "El modelo necesita estado, giro, presencia en redes y "
-                 "procedencia. Pesa 20%.",
-                 tipo="insumo_modelo", bloquea=(RIESGO,))
+                 "procedencia. Pesa 20% y lo captura el operador.",
+                 tipo="insumo_modelo", bloquea=())
 
     faltan = ((cobertura.get("estados_cuenta") or 0)
               < (cobertura.get("estados_requeridos") or 3))
