@@ -30,6 +30,7 @@ Configuración, en el mismo `.env` que Supabase:
 Uso:
     python syntage.py probar
     python syntage.py entidad <RFC>
+    python syntage.py extracciones <RFC>    ¿ya terminó de bajar todo?
     python syntage.py credenciales <RFC>
     python syntage.py fiscal <RFC>          declaración anual por ejercicio
     python syntage.py extraer <RFC> [--guardar]   todo lo que Syntage sabe
@@ -286,6 +287,29 @@ RECURSOS = {
 }
 
 
+def extracciones(rfc, estado=None):
+    """Estado de las extracciones del SAT para ese contribuyente."""
+    return _lista(pedir("/extractions",
+                        {"taxpayer.id": rfc.upper(), "status": estado}))
+
+
+def extraccion_completa(rfc):
+    """¿Ya terminó de bajar todo? Devuelve (completa, pendientes).
+
+    Compuerta imprescindible antes de que riesgo mire estos datos. Las
+    extracciones son asíncronas y tardan horas: un expediente abierto hoy tiene
+    la declaración anual a medias, y los insights que la usan devuelven cifras
+    parciales **sin marcarlas como parciales**. En la primera prueba real, un
+    cliente aparecía con toda su facturación histórica concentrada en el mes en
+    curso, solo porque `annual_tax_return` seguía corriendo.
+    """
+    pendientes = [{"extractor": e.get("extractor"), "estado": e.get("status"),
+                   "desde": e.get("createdAt")}
+                  for e in extracciones(rfc)
+                  if e.get("status") in ("running", "pending", "queued")]
+    return (not pendientes), pendientes
+
+
 def extraer_todo(entidad_id, recursos=None, desde="2019-01-01", hasta=None):
     """Barre todos los insights y devuelve {recurso: payload} más los fallos.
 
@@ -390,6 +414,21 @@ def main(argv):
         if not args:
             print(__doc__)
             return 1
+
+        # Va antes de resolver la entidad: se consulta por RFC y sirve aunque
+        # la entidad todavía no esté lista.
+        if orden == "extracciones":
+            completa, pendientes = extraccion_completa(args[0])
+            if completa:
+                print("Extracción completa. Los datos de Syntage ya son confiables.")
+                return 0
+            print("ATENCIÓN: %d extracción(es) sin terminar.\n"
+                  "Los insights van a devolver cifras parciales sin avisar que lo son;\n"
+                  "no bases una decisión de riesgo en ellas todavía.\n" % len(pendientes))
+            for p in pendientes:
+                print("  %-24s %-10s desde %s" % (p["extractor"], p["estado"], p["desde"]))
+            return 0
+
         eid = id_entidad(args[0])
 
         if orden == "credenciales":
