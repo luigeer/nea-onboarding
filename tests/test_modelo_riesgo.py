@@ -90,6 +90,29 @@ b7 = dict(BURO_LIMPIO, peor_edo_6m=7)
 check(var(evaluar(PERFIL, b7, DEC_VACIA, CUENTA, hoy=HOY), "buro", "peor_edo") == -2.0,
       "corregido: un peor estado de 7 sí se sigue penalizando")
 
+# ── 10 · un sujeto sin historial no es un sujeto con historial limpio ────────
+print("Corrección 10 · sin historial en buró")
+SIN_HISTORIAL = {k: None for k in BURO_LIMPIO}
+r = evaluar(PERFIL, SIN_HISTORIAL, DEC_VACIA, CUENTA, hoy=HOY)
+check(r["modulos"]["buro"] is None,
+      "sin ningún dato de buró el módulo se excluye")
+r_ceros = evaluar(PERFIL, dict.fromkeys(BURO_LIMPIO, 0), DEC_VACIA, CUENTA, hoy=HOY)
+check(r_ceros["modulos"]["buro"] is not None and r_ceros["modulos"]["buro"] > r["score"],
+      "capturarlo en ceros premiaría un historial limpio que no existe")
+check(r["score"] != r_ceros["score"],
+      "por eso 'sin historial' y 'todo en cero' no dan el mismo score")
+
+# El score PYME válido arranca en 100: un 0 es ausencia de score, no el peor.
+check(var(evaluar(PERFIL, dict(BURO_LIMPIO, score_pyme=0), DEC_VACIA, CUENTA, hoy=HOY),
+          "buro", "score_pyme_adj") is None,
+      "un score PYME de 0 se trata como sin dato")
+check(var(evaluar(PERFIL, dict(BURO_LIMPIO, score_pyme=0), DEC_VACIA, CUENTA,
+                  hoy=HOY, legado=True), "buro", "score_pyme_adj") == -2.0,
+      "legado: ese mismo 0 recibía la penalización máxima")
+check(abs(var(evaluar(PERFIL, dict(BURO_LIMPIO, score_pyme=400), DEC_VACIA, CUENTA,
+                      hoy=HOY), "buro", "score_pyme_adj") - 1.0) < 1e-9,
+      "y un score PYME real se sigue calculando igual")
+
 # ── 5 · ponderaciones que sumaban 1.20 ───────────────────────────────────────
 print("Corrección 5 · ponderaciones del módulo de declaración anual")
 dec = {"ingresos_totales": 58287737.0, "utilidad_operacion": -3117753.0,

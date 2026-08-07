@@ -150,8 +150,12 @@ def _buro(b, legado):
     # CORRECCIÓN 6: el escalón en 0.30 daba un salto de 2.31 puntos —con 0.30
     # recibías −2 y con 0.31 recibías 0.31—. Ahora la penalización se reparte
     # de forma continua y los extremos siguen valiendo lo mismo.
+    # El score PYME válido arranca en 100; la fórmula (score-100)/300 lo
+    # normaliza a 0-1. Un 0 no es un score pésimo, es que no hay score — y sin
+    # esta guarda caía al peor extremo de la rampa y recibía −2. Es el mismo
+    # defecto que el Peor_Edo de 0, escondido en otra variable.
     score = b.get("score_pyme")
-    adj = None if score is None else (score - 100) / 300
+    adj = None if not score or score < 100 else (score - 100) / 300
     if adj is None:
         v["score_pyme_adj"] = (0.20, None)
     elif legado:
