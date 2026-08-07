@@ -15,7 +15,7 @@ from datetime import date
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from schema_expediente import expediente_vacio
-from validador import (revisar, solicitud_para_ventas, reporte_interno,
+from validador import (revisar, solicitud_para_ventas, solicitud_breve, reporte_interno,
                        a_observaciones, ALTA, INTERMEDIA, BAJA, RIESGO, GENERACION)
 
 HOY = date(2026, 8, 7)
@@ -87,8 +87,32 @@ check(any("Identificación" in h["asunto"] for h in r.por_gravedad(ALTA)),
 e = completo()
 e["cuentas_bancarias"][0]["periodos"] = ["2026-06", "2026-07"]
 r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
-check(any("estado(s) de cuenta" in h["asunto"] for h in r.por_gravedad(INTERMEDIA)),
+check(any("estados de cuenta" in h["asunto"] for h in r.por_gravedad(INTERMEDIA)),
       "que falte un estado de cuenta es de gravedad intermedia")
+check(len([h for h in r.hallazgos if h["tipo"] == "estados_cuenta"]) == 1,
+      "y se pide en un solo renglón, no en dos")
+
+# Lo que cumplimiento ya aceptó por escrito no se vuelve a pedir.
+e = completo()
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "comprobante_domicilio"]
+e["documentos"].append({"tipo": "comprobante_domicilio", "fecha_emision": "2026-05-15",
+                        "legible": True})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+asunto = [h["asunto"] for h in r.hallazgos if h["tipo"] == "vigencia"][0]
+e["observaciones"] = [{"tipo": "vigencia", "estado": "aceptada",
+                       "descripcion": asunto + " — aceptado por cumplimiento"}]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(not any(h["asunto"] == asunto for h in r.hallazgos),
+      "una observación aceptada deja de aparecer en la revisión")
+
+# Una observación capturada a mano que pide algo llega a la solicitud.
+e = completo()
+e["observaciones"] = [{"tipo": "coherencia", "estado": "abierta", "severidad": INTERMEDIA,
+                       "descripcion": "El acta no menciona a los accionistas del buró",
+                       "pedir": "Acta de asamblea con la estructura accionaria vigente"}]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check("Acta de asamblea" in solicitud_breve(e, r),
+      "una observación capturada a mano se suma a la solicitud")
 
 e = completo()
 e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "comprobante_domicilio"]

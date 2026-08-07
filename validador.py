@@ -79,6 +79,23 @@ OBLIGATORIOS_PF = [
 ]
 
 
+# El obligado solidario garantiza con su patrimonio y firma la adenda, así que
+# se identifica igual que el cliente. No se le piden estados de cuenta: el
+# modelo corre sobre el flujo del acreditado, no sobre el del garante.
+OBLIGADO_PM = [
+    ("csf_obligado_solidario",          "Constancia de Situación Fiscal"),
+    ("acta_constitutiva_obligado",      "Acta constitutiva"),
+    ("comprobante_domicilio_obligado",  "Comprobante de domicilio"),
+    ("identificacion_obligado",         "Identificación oficial vigente de quien firma"),
+]
+
+OBLIGADO_PF = [
+    ("csf_obligado_solidario",          "Constancia de Situación Fiscal"),
+    ("identificacion_obligado",         "Identificación oficial vigente"),
+    ("comprobante_domicilio_obligado",  "Comprobante de domicilio"),
+]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 def _fecha(v):
     if isinstance(v, date):
@@ -113,7 +130,7 @@ class Revision(object):
         self.hallazgos = []
 
     def anotar(self, gravedad, asunto, detalle, pedir=None, tipo=None, motivo=None,
-               bloquea=AMBAS):
+               bloquea=AMBAS, sujeto=None):
         """`pedir` y `motivo` son para el cliente; `detalle` para uso interno.
 
         La distinción importa: 'no hay ningún documento de tipo
@@ -123,7 +140,7 @@ class Revision(object):
             "gravedad": gravedad, "asunto": asunto, "detalle": detalle,
             "motivo": motivo or detalle, "pedir": pedir,
             "tipo": tipo or "revision", "fecha": date.today().isoformat(),
-            "bloquea": tuple(bloquea),
+            "bloquea": tuple(bloquea), "sujeto": sujeto,
         })
 
     def por_gravedad(self, g):
@@ -187,30 +204,49 @@ def _completitud(exp, r, hoy):
     cuentas = [c for c in _get(exp, "cuentas_bancarias", [])
                if c.get("titular_es_cliente")]
     periodos = max((len(c.get("periodos") or []) for c in cuentas), default=0)
-    if periodos < requeridos:
-        faltan = requeridos - periodos
-        r.anotar(INTERMEDIA,
-                 "Faltan %d estado(s) de cuenta" % faltan,
-                 "Hay %d y con una línea de %s se requieren %d."
-                 % (periodos, _pesos(linea), requeridos),
-                 pedir=("%d estado(s) de cuenta bancarios más, de los meses más "
-                        "recientes" % faltan),
-                 tipo="estados_cuenta", bloquea=AMBAS)
 
-    # El corte más reciente que ya se puede exigir.
+    # Cuál es el último mes ya exigible: uno cuyo corte tenga más de cinco días.
     corte_exigible = hoy - timedelta(days=DIAS_GRACIA_CORTE)
+    ultimo_exigible = _mas_meses(date(corte_exigible.year, corte_exigible.month, 1), -1)
+    faltan_meses = []
     for c in cuentas:
         ultimos = sorted(c.get("periodos") or [])
         if not ultimos:
             continue
         a, m = (int(x) for x in ultimos[-1].split("-")[:2])
-        fin = _mas_meses(date(a, m, 1), 1) - timedelta(days=1)
-        if fin < _mas_meses(corte_exigible, -1):
-            r.anotar(INTERMEDIA, "Los estados de cuenta no llegan al mes exigible",
-                     "El último es de %s; a hoy ya se puede exigir hasta el corte "
-                     "anterior al %s." % (ultimos[-1], corte_exigible.isoformat()),
-                     pedir="El estado de cuenta del mes más reciente ya cerrado",
-                     tipo="estados_cuenta", bloquea=AMBAS)
+        cursor = _mas_meses(date(a, m, 1), 1)
+        while cursor <= ultimo_exigible:
+            faltan_meses.append(cursor.strftime("%Y-%m"))
+            cursor = _mas_meses(cursor, 1)
+
+    # Un solo renglón: pedir "faltan N" y además "el más reciente" son la misma
+    # petición vista de dos formas, y al cliente le llegan como dos pendientes.
+    if periodos < requeridos or faltan_meses:
+        MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                 "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        def bonito(p):
+            a, m = p.split("-")
+            return "%s %s" % (MESES[int(m) - 1], a)
+
+        # Ventas reenvía este renglón tal cual: nombrar los meses evita el
+        # ida y vuelta de "¿cuál me falta?".
+        if faltan_meses:
+            meses = sorted(set(faltan_meses))
+            pedido = ("Estado de cuenta bancario de %s" % bonito(meses[0])
+                      if len(meses) == 1 else
+                      "Estados de cuenta bancarios de %s y %s"
+                      % (", ".join(bonito(p) for p in meses[:-1]), bonito(meses[-1])))
+        else:
+            faltan = requeridos - periodos
+            pedido = ("Un estado de cuenta bancario más, del mes más reciente"
+                      if faltan == 1 else
+                      "%d estados de cuenta bancarios más, de los meses más "
+                      "recientes" % faltan)
+        r.anotar(INTERMEDIA, "Faltan estados de cuenta",
+                 "Hay %d de los %d que exige una línea de %s%s."
+                 % (periodos, requeridos, _pesos(linea),
+                    "; el último es anterior al mes ya exigible" if faltan_meses else ""),
+                 pedir=pedido, tipo="estados_cuenta", bloquea=AMBAS)
 
     if _get(exp, "flags.obligado_solidario"):
         os_ = _get(exp, "obligado_solidario", {})
@@ -347,6 +383,57 @@ def _coherencia(exp, r):
                      pedir=("Constancia de Situación Fiscal e identificación oficial "
                             "vigente de %s" % nombre),
                      tipo="beneficiario", bloquea=(GENERACION,))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# El obligado solidario
+# ─────────────────────────────────────────────────────────────────────────────
+def _obligado_solidario(exp, r, hoy):
+    """Revisa al garante con el mismo rigor que al acreditado.
+
+    Se hace en la misma pasada y no en una revisión aparte, porque cada vuelta
+    de solicitudes al cliente es una oportunidad de perderlo: si al garante le
+    falta un papel, hay que saberlo antes de mandar la primera lista.
+    """
+    if not _get(exp, "flags.obligado_solidario"):
+        return
+
+    os_ = _get(exp, "obligado_solidario", {}) or {}
+    es_moral = os_.get("tipo") == "persona_moral"
+    nombre = (os_.get("razon_social") if es_moral
+              else _get(exp, "obligado_solidario.persona_fisica.nombre"))
+    nombre = nombre or "el obligado solidario"
+
+    if os_.get("es_cliente"):
+        # Ya tiene expediente propio: no se le vuelve a pedir nada.
+        return
+
+    presentes = _documentos_por_tipo(exp)
+    # Si el representante del obligado es la misma persona que firma por el
+    # cliente, su identificación ya está en el expediente: no se pide dos veces.
+    mismo_firmante = (os_.get("rep_legal") or "").strip().upper() ==         (_get(exp, "representante_legal.validado.nombre") or "").strip().upper()
+
+    for clave, etiqueta in (OBLIGADO_PM if es_moral else OBLIGADO_PF):
+        if clave == "identificacion_obligado" and mismo_firmante                 and "identificacion_rep" in presentes:
+            continue
+        if clave not in presentes:
+            r.anotar(INTERMEDIA, "%s: falta %s" % (nombre, etiqueta.lower()),
+                     "No hay documento de tipo %s para el obligado solidario." % clave,
+                     pedir=etiqueta, tipo="obligado_solidario",
+                     bloquea=(GENERACION,), sujeto=nombre,
+                     motivo="No lo tenemos en el expediente.")
+
+    # Quien firme por el obligado necesita poder para obligarlo solidariamente.
+    apoderados = _get(exp, "obligado_solidario.organo_administracion.apoderados", []) or []
+    if es_moral and apoderados and not any(
+            (a.get("facultades") or {}).get("titulos_credito") for a in apoderados
+            if isinstance(a, dict)):
+        r.anotar(ALTA, "%s: nadie tiene facultad para suscribir títulos de crédito" % nombre,
+                 "Ninguno de los apoderados registrados puede obligar cambiariamente "
+                 "a la sociedad, y la adenda de obligado solidario lo exige.",
+                 pedir=("Instrumento que acredite quién puede obligar solidariamente "
+                        "a %s" % nombre),
+                 tipo="obligado_solidario", bloquea=(GENERACION,), sujeto=nombre)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -523,6 +610,21 @@ def _facultades(exp, r):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _ya_aceptado(exp, hallazgo):
+    """¿Cumplimiento ya aceptó esto por escrito?
+
+    Volver a pedir algo que el operador ya resolvió es la forma más rápida de
+    que ventas deje de leer estas listas.
+    """
+    for o in _get(exp, "observaciones", []):
+        if o.get("estado") not in ("aceptada", "resuelta"):
+            continue
+        desc = o.get("descripcion") or ""
+        if hallazgo["asunto"] and hallazgo["asunto"] in desc:
+            return True
+    return False
+
+
 def revisar(exp, hoy=None, cobertura=None):
     """Corre las etapas 1 y 2 completas.
 
@@ -534,8 +636,10 @@ def revisar(exp, hoy=None, cobertura=None):
     _completitud(exp, r, hoy)
     _vigencias(exp, r, hoy)
     _coherencia(exp, r)
+    _obligado_solidario(exp, r, hoy)
     _insumos_modelo(exp, r, cobertura)
     _facultades(exp, r)
+    r.hallazgos = [h for h in r.hallazgos if not _ya_aceptado(exp, h)]
     return r
 
 
@@ -597,6 +701,56 @@ def solicitud_para_ventas(exp, r):
         lineas.append("")
 
     lineas.append("En cuanto lo tengamos seguimos con el análisis.")
+    return "\n".join(lineas)
+
+
+def solicitud_breve(exp, r):
+    """La lista corta que ventas le reenvía al cliente.
+
+    Solo qué mandar, agrupado por empresa, numerado corrido para que el cliente
+    pueda contestar "ya tengo el 2 y el 4". Sin motivos: esos van en el reporte
+    largo, y meterlos aquí convierte una lista de cuatro renglones en un muro
+    de texto que nadie lee.
+    """
+    razon = _get(exp, "cliente.validado.razon_social") or "el cliente"
+
+    # Una observación capturada a mano puede pedir algo —un acta de asamblea que
+    # solo se descubre comparando el buró contra el acta constitutiva— y tiene
+    # que salir en esta misma lista, no en un correo aparte.
+    manuales = [{"pedir": o["pedir"], "gravedad": o.get("severidad", INTERMEDIA),
+                 "sujeto": o.get("sujeto"), "asunto": ""}
+                for o in _get(exp, "observaciones", [])
+                if o.get("estado") == "abierta" and o.get("pedir")]
+
+    if r.aprobado and not manuales:
+        return "%s — no falta documentación." % razon
+
+    # El cliente primero, el obligado después; dentro de cada uno, lo más grave
+    # arriba.
+    pedidos, vistos = {}, set()
+    for h in sorted(r.hallazgos + manuales,
+                    key=lambda x: ORDEN.get(x["gravedad"], 1)):
+        if not h.get("pedir") or h["gravedad"] == BAJA:
+            continue
+        texto = str(h["pedir"]).splitlines()[0]
+        if texto in vistos:
+            continue
+        vistos.add(texto)
+        pedidos.setdefault(h.get("sujeto") or razon, []).append(texto)
+
+    if not pedidos:
+        return "%s — no falta documentación." % razon
+
+    orden = sorted(pedidos, key=lambda s: (s != razon, s))
+    lineas = ["%s — documentos pendientes" % razon, ""]
+    n = 0
+    for sujeto in orden:
+        lineas.append("De %s:" % sujeto)
+        for texto in pedidos[sujeto]:
+            n += 1
+            lineas.append("%d. %s" % (n, texto))
+        lineas.append("")
+    lineas.append("Con eso cerramos la revisión y pasamos al análisis.")
     return "\n".join(lineas)
 
 
