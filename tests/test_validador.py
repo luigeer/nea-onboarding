@@ -1,0 +1,207 @@
+# -*- coding: utf-8 -*-
+"""
+Pruebas de la revisión documental: gravedades y las dos compuertas.
+
+Todos los datos son inventados.
+
+Se corre con:
+    python tests/test_validador.py
+"""
+
+import os
+import sys
+from datetime import date
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from schema_expediente import expediente_vacio
+from validador import (revisar, solicitud_para_ventas, reporte_interno,
+                       a_observaciones, ALTA, INTERMEDIA, BAJA, RIESGO, GENERACION)
+
+HOY = date(2026, 8, 7)
+fallas = []
+
+
+def check(cond, msg):
+    print(("  ok  " if cond else "FALLA ") + msg)
+    if not cond:
+        fallas.append(msg)
+
+
+def completo(**cambios):
+    """Un expediente al que no le falta nada: la base para quitarle cosas."""
+    e = expediente_vacio()
+    e["folio"] = "T-01"
+    e["tipo_cliente"] = "persona_moral"
+    e["cliente"]["validado"].update({
+        "razon_social": "EJEMPLO INDUSTRIAL, S.A. de C.V.", "rfc": "EJE200803A2A",
+        "situacion_contribuyente": "ACTIVO"})
+    e["credito"]["solicitada"]["linea"] = 150000.0
+    e["documentos"] = [
+        {"tipo": "csf_cliente", "fecha_emision": "2026-07-01", "legible": True},
+        {"tipo": "acta_constitutiva", "fecha_emision": "2020-01-15", "legible": True},
+        {"tipo": "comprobante_domicilio", "fecha_emision": "2026-07-20", "legible": True},
+        {"tipo": "identificacion_rep", "vigente_hasta": "2031-12-31", "legible": True},
+        {"tipo": "autorizacion_buro", "fecha_emision": "2026-01-10", "legible": True},
+        {"tipo": "credencial_sat", "fecha_emision": "2026-07-01", "legible": True},
+        {"tipo": "cotizacion", "fecha_emision": "2026-07-31", "legible": True},
+        {"tipo": "csf_beneficiario", "sujeto": "CARLOS RUIZ",
+         "fecha_emision": "2026-07-01", "legible": True},
+    ]
+    e["cuentas_bancarias"] = [{"banco": "BBVA", "titular_es_cliente": True,
+                               "periodos": ["2026-05", "2026-06", "2026-07"]}]
+    e["representante_legal"]["validado"].update({
+        "nombre": "CARLOS RUIZ",
+        "facultades": {"titulos_credito": True, "individual": True,
+                       "limite_monto": None}})
+    e["beneficiarios_controladores"] = [
+        {"nombre": "CARLOS RUIZ", "participacion": {"porcentaje": 100.0}}]
+    for k, v in cambios.items():
+        e[k] = v
+    return e
+
+
+COBERTURA_LLENA = {"estados_cuenta": 3, "estados_reconciliados": 3,
+                   "consultas_buro": 1, "ejercicios_fiscales": 2,
+                   "perfil_completo": True, "estados_requeridos": 3}
+
+
+# ── el caso base ─────────────────────────────────────────────────────────────
+print("Expediente completo")
+r = revisar(completo(), hoy=HOY, cobertura=COBERTURA_LLENA)
+check(r.aprobado, "no encuentra nada que reclamar")
+check(r.puede_pasar_a_riesgo and r.puede_generar, "las dos compuertas abiertas")
+check("Pasa a análisis de riesgo" in solicitud_para_ventas(completo(), r),
+      "el texto para ventas dice que está listo")
+
+# ── las tres gravedades ──────────────────────────────────────────────────────
+print("Gravedades")
+e = completo()
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "identificacion_rep"]
+e["documentos"].append({"tipo": "identificacion_rep", "vigente_hasta": "2025-12-31",
+                        "legible": True})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("Identificación" in h["asunto"] for h in r.por_gravedad(ALTA)),
+      "una identificación vencida es de gravedad alta")
+
+e = completo()
+e["cuentas_bancarias"][0]["periodos"] = ["2026-06", "2026-07"]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("estado(s) de cuenta" in h["asunto"] for h in r.por_gravedad(INTERMEDIA)),
+      "que falte un estado de cuenta es de gravedad intermedia")
+
+e = completo()
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "comprobante_domicilio"]
+e["documentos"].append({"tipo": "comprobante_domicilio", "fecha_emision": "2026-05-02",
+                        "legible": True})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("Comprobante" in h["asunto"] for h in r.por_gravedad(ALTA)),
+      "un comprobante de mayo ya vencido es de gravedad alta")
+
+# ── LO IMPORTANTE · las dos compuertas son independientes ────────────────────
+print("Las dos compuertas")
+e = completo()
+e["beneficiarios_controladores"].append(
+    {"nombre": "ANA LOPEZ", "participacion": {"porcentaje": 30.0}})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(r.puede_pasar_a_riesgo,
+      "falta la documentación de un beneficiario y aun así pasa a riesgo")
+check(not r.puede_generar, "pero no puede generar contratos")
+check(any("ANA LOPEZ" in h["asunto"] for h in r.detienen(GENERACION)),
+      "el faltante aparece como bloqueo de generación")
+check(not any("ANA LOPEZ" in h["asunto"] for h in r.detienen(RIESGO)),
+      "y no como bloqueo de riesgo")
+
+e = completo()
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "identificacion_rep"]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(r.puede_pasar_a_riesgo,
+      "sin identificación del representante todavía se puede evaluar el riesgo")
+check(not r.puede_generar, "pero no firmar")
+
+print("Insumos del modelo")
+for campo, etiqueta in (("consultas_buro", "buró"), ("ejercicios_fiscales", "fiscal"),
+                        ("perfil_completo", "perfil"), ("estados_cuenta", "estados")):
+    cob = dict(COBERTURA_LLENA)
+    cob[campo] = 0 if campo != "perfil_completo" else False
+    r = revisar(completo(), hoy=HOY, cobertura=cob)
+    check(not r.puede_pasar_a_riesgo, "sin %s no se pasa a riesgo" % etiqueta)
+
+r = revisar(completo(), hoy=HOY, cobertura=dict(COBERTURA_LLENA, estados_reconciliados=0))
+check(r.puede_pasar_a_riesgo,
+      "sin cifras reconciliadas sí se pasa, pero queda anotado")
+check(any("reconciliadas" in h["asunto"] for h in r.por_gravedad(BAJA)),
+      "y la anotación es de gravedad baja")
+
+r = revisar(completo(), hoy=HOY)
+check(r.aprobado, "sin cobertura las revisiones del modelo se omiten y no estorban")
+
+# ── el árbol de facultades ───────────────────────────────────────────────────
+print("Facultades del representante")
+e = completo()
+e["representante_legal"]["validado"]["facultades"]["titulos_credito"] = False
+e["organo_administracion"]["apoderados"] = [
+    {"nombre": "MARIA SOTO", "cargo": "Administradora Única",
+     "fundamento": "Cláusula Décima", "facultades": {"titulos_credito": True}},
+    {"nombre": "PEDRO GIL", "cargo": "Apoderado",
+     "facultades": {"titulos_credito": True, "limite_monto": 50000.0}},
+]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+alta = [h for h in r.por_gravedad(ALTA) if h["tipo"] == "facultades"]
+check(alta, "sin facultad para títulos de crédito es gravedad alta")
+check("MARIA SOTO" in alta[0]["pedir"], "y propone a quien sí puede firmar")
+check("PEDRO GIL" not in alta[0]["pedir"],
+      "pero no a quien tiene un límite por debajo de la línea")
+check(r.puede_pasar_a_riesgo, "aun así el riesgo se puede evaluar")
+
+e = completo()
+e["representante_legal"]["validado"]["facultades"]["limite_monto"] = 50000.0
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("no alcanza para el monto" in h["asunto"] for h in r.por_gravedad(ALTA)),
+      "un poder por debajo de la línea es gravedad alta")
+
+e = completo()
+e["representante_legal"]["validado"]["facultades"]["individual"] = False
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("mancomunado" in h["asunto"] for h in r.por_gravedad(INTERMEDIA)),
+      "mancomunado sin cofirmantes es intermedia")
+e["cofirmantes"] = ["ANA LOPEZ"]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("mancomunado" in h["asunto"] for h in r.por_gravedad(BAJA)),
+      "con cofirmantes baja a informativo")
+
+# ── coherencia ───────────────────────────────────────────────────────────────
+print("Coherencia entre documentos")
+e = completo()
+e["cuentas_bancarias"][0].update({"titular_es_cliente": False, "titular": "OTRA EMPRESA"})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("otra entidad" in h["asunto"] for h in r.por_gravedad(ALTA)),
+      "estados de cuenta de otra empresa es gravedad alta")
+
+e = completo()
+e["cliente"]["validado"]["situacion_contribuyente"] = "SUSPENDIDO"
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(any("no está ACTIVO" in h["asunto"] for h in r.por_gravedad(ALTA)),
+      "un contribuyente no ACTIVO es gravedad alta")
+
+# ── el texto para ventas ─────────────────────────────────────────────────────
+print("Salidas")
+e = completo()
+e["beneficiarios_controladores"].append(
+    {"nombre": "ANA LOPEZ", "participacion": {"porcentaje": 30.0}})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+texto = solicitud_para_ventas(e, r)
+check("análisis de riesgo ya están completos" in texto,
+      "el texto avisa que riesgo ya puede arrancar")
+check("tipo csf_beneficiario" not in texto and "_" not in texto.split("Motivo")[1][:40],
+      "y no se le cuela jerga interna al cliente")
+
+n = a_observaciones(e, r)
+check(n == len(r.hallazgos), "los hallazgos se vuelcan al expediente")
+check(a_observaciones(e, r) == 0, "y volver a volcarlos no duplica")
+
+print()
+if fallas:
+    print("%d prueba(s) fallaron" % len(fallas))
+    sys.exit(1)
+print("Todas las pruebas pasaron.")
