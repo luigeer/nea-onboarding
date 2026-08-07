@@ -150,19 +150,24 @@ def _buro(b, legado):
     # CORRECCIÓN 6: el escalón en 0.30 daba un salto de 2.31 puntos —con 0.30
     # recibías −2 y con 0.31 recibías 0.31—. Ahora la penalización se reparte
     # de forma continua y los extremos siguen valiendo lo mismo.
-    # El score PYME válido arranca en 100; la fórmula (score-100)/300 lo
-    # normaliza a 0-1. Un 0 no es un score pésimo, es que no hay score — y sin
-    # esta guarda caía al peor extremo de la rampa y recibía −2. Es el mismo
-    # defecto que el Peor_Edo de 0, escondido en otra variable.
     score = b.get("score_pyme")
-    adj = None if not score or score < 100 else (score - 100) / 300
-    if adj is None:
-        v["score_pyme_adj"] = (0.20, None)
-    elif legado:
-        v["score_pyme_adj"] = (0.20, -2.0 if adj <= 0.3 else adj)
+    if legado:
+        # El comportamiento viejo, tal cual: cualquier valor entra a la fórmula,
+        # y un 0 termina en −2 por el acantilado.
+        adj = None if score is None else (score - 100) / 300
+        v["score_pyme_adj"] = (0.20, None if adj is None
+                               else (-2.0 if adj <= 0.3 else adj))
     else:
-        v["score_pyme_adj"] = (0.20, adj if adj > 0.3
-                               else -2.0 + (max(adj, 0.0) / 0.3) * 2.3)
+        # CORRECCIÓN 10: el score PYME válido arranca en 100 y la fórmula
+        # (score-100)/300 lo normaliza a 0-1. Un 0 no es un score pésimo, es que
+        # no hay score — y sin esta guarda caía al peor extremo de la rampa y
+        # recibía −2. Es el mismo defecto que el Peor_Edo de 0, escondido en
+        # otra variable; salió al consultar un buró sin historial.
+        adj = None if not score or score < 100 else (score - 100) / 300
+        # CORRECCIÓN 6: la rampa reemplaza al acantilado de 2.31 puntos.
+        v["score_pyme_adj"] = (0.20, None if adj is None
+                               else (adj if adj > 0.3
+                                     else -2.0 + (max(adj, 0.0) / 0.3) * 2.3))
 
     prev = b.get("prevenciones")
     if prev == "Roja":
