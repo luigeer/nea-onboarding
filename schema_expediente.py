@@ -197,14 +197,23 @@ def compuertas_generacion(exp):
                           (format(float(linea), ",.2f"), requeridos, n))
 
     # ── observaciones ───────────────────────────────────────────────────────
+    # Tres niveles. Una gravedad alta significa que el documento existe pero no
+    # sirve —una identificación vencida, un contribuyente que no está ACTIVO—,
+    # y eso no se acepta con justificación: se reemplaza. Una intermedia sí
+    # puede aceptarla cumplimiento, pero nunca sin justificación escrita.
+    # 'bloqueante' y 'advertencia' son los nombres viejos de alta e intermedia.
+    ALTAS = ("alta", "bloqueante")
+    INTERMEDIAS = ("intermedia", "advertencia")
+
     for o in _get(exp, "observaciones", []):
-        if o.get("severidad") == "bloqueante" and o.get("estado") != "resuelta":
-            fallas.append("Faltante bloqueante sin resolver: %s" % o.get("descripcion"))
-        if (o.get("severidad") == "advertencia" and
-                o.get("estado") not in ("resuelta", "aceptada")):
+        sev, estado = o.get("severidad"), o.get("estado")
+        if sev in ALTAS and estado != "resuelta":
+            fallas.append("Observación de gravedad alta sin resolver: %s"
+                          % o.get("descripcion"))
+        if sev in INTERMEDIAS and estado not in ("resuelta", "aceptada"):
             fallas.append("Observación sin resolver ni aceptar formalmente: %s"
                           % o.get("descripcion"))
-        if o.get("estado") == "aceptada" and not o.get("justificacion"):
+        if estado == "aceptada" and not o.get("justificacion"):
             fallas.append("Observación aceptada sin justificación escrita: %s"
                           % o.get("descripcion"))
 
