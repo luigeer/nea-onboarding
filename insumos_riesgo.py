@@ -146,16 +146,26 @@ def cuentas(folio, sb=None):
 
 
 def declaracion(folio, sb=None):
-    """El ejercicio fiscal más reciente que traiga algo.
+    """El ejercicio declarado más reciente.
 
-    Devuelve (fila, ejercicio). Si los tres vienen en blanco devuelve ({}, None)
-    y el modelo reporta el módulo ausente: una declaración vacía dice que la
-    empresa no operó, no que operó mal.
+    Devuelve (fila, ejercicio). Manda la marca `declarado`: un ejercicio
+    presentado en ceros SÍ es el ejercicio a usar —dice que la empresa no
+    facturó, que es información— mientras que uno sin presentar no lo es.
+
+    Para filas viejas, anteriores a que existiera esa columna, se cae al
+    criterio de "trae alguna cifra distinta de cero". Es peor: no distingue el
+    cero declarado del hueco, y por eso se prefiere `declarado` cuando está.
     """
     import db
     sb = sb or db.cliente()
     filas = sb.table("info_fiscal").select("*").eq("folio", folio) \
               .order("ejercicio", desc=True).execute().data or []
+
+    declarados = [f for f in filas if f.get("declarado")]
+    if declarados:
+        f = declarados[0]
+        return {c: f.get(c) for c in CAMPOS_FISCAL}, f.get("ejercicio")
+
     for f in filas:
         if any(f.get(c) not in (None, 0) for c in CAMPOS_FISCAL):
             return {c: f.get(c) for c in CAMPOS_FISCAL}, f.get("ejercicio")

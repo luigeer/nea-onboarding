@@ -159,6 +159,28 @@ d, ejercicio = insumos_riesgo.declaracion("T-01", sb=vacios)
 check(d == {} and ejercicio is None,
       "tres declaraciones vacías se reportan como módulo ausente, no como ceros")
 
+# LO IMPORTANTE: declarado en ceros SÍ es el ejercicio a usar. Es el caso de la
+# empresa que se constituyó, presentó sus tres declaraciones y no facturó.
+en_ceros = FakeSB({"info_fiscal": [
+    dict({c: 0.0 for c in insumos_riesgo.CAMPOS_FISCAL},
+         folio="T-01", ejercicio=a, declarado=True, capital_contable=100000.0,
+         activo_corto_plazo=100000.0, dictaminados=None)
+    for a in (2023, 2024, 2025)]})
+d, ejercicio = insumos_riesgo.declaracion("T-01", sb=en_ceros)
+check(ejercicio == 2025 and d["ingresos_totales"] == 0.0,
+      "un ejercicio declarado en ceros sí se usa: no facturar es información")
+
+# Y uno declarado gana sobre uno más reciente sin declarar.
+mixto = FakeSB({"info_fiscal": [
+    dict({c: None for c in insumos_riesgo.CAMPOS_FISCAL},
+         folio="T-01", ejercicio=2026, declarado=None),
+    dict({c: 0.0 for c in insumos_riesgo.CAMPOS_FISCAL},
+         folio="T-01", ejercicio=2025, declarado=True, ingresos_totales=800000.0),
+]})
+d, ejercicio = insumos_riesgo.declaracion("T-01", sb=mixto)
+check(ejercicio == 2025,
+      "y un ejercicio sin declarar no le gana al último declarado por ser más reciente")
+
 
 # ── el perfil ────────────────────────────────────────────────────────────────
 print("Perfil")

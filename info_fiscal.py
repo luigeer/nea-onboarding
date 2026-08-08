@@ -150,6 +150,124 @@ def desde_declaracion(datos, ejercicio, fuente="syntage"):
     return fila, procedencia
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Proyección desde los insights `metrics/*`
+# ─────────────────────────────────────────────────────────────────────────────
+# Los endpoints `metrics/balance-sheet` y `metrics/income-statement` no
+# devuelven un ejercicio: devuelven cinco. Cada nodo es
+#
+#     {"category": "Activo a corto plazo",
+#      "2022": {"Total": null}, "2023": {"Total": 100000.0}, ...,
+#      "children": [...]}
+#
+# y el árbol cubre años que todavía no se declaran. Un `null` ahí no significa
+# lo mismo en todos los años, y confundirlo cambia el score:
+#
+#   ejercicio NO declarado    todos sus nodos vienen en null. No sabemos nada;
+#                             la fila no se escribe y el módulo queda ausente.
+#   ejercicio SÍ declarado    el SAT rellena con 0.0 las líneas que calcula y
+#                             deja en null las que el contribuyente no llenó.
+#                             Ahí un null es un cero declarado.
+#
+# La distinción no contradice el principio de que la ausencia de un dato no es
+# un dato desfavorable: ese principio habla de datos que a NOSOTROS nos faltan.
+# Una declaración presentada con utilidad bruta cero y el renglón de ingresos
+# en blanco no es información faltante — es una empresa que declaró no haber
+# vendido. Leerlo como "no sé" saca la variable del promedio y sube el score de
+# una empresa que no facturó.
+BALANCE_INSIGHT = {
+    "activo_corto_plazo": ("Activo", "Activo a corto plazo"),
+    "pasivo_corto_plazo": ("Pasivo", "Pasivo a corto plazo"),
+    "capital_contable":   ("Capital", "Capital contable"),
+}
+
+RESULTADOS_INSIGHT = {
+    "ingresos_totales":   ("Ingresos Netos",),
+    "utilidad_operacion": ("Utilidad de operación", "Pérdida de operación"),
+}
+
+
+def _nodos(payload):
+    """Aplana el árbol de un insight a {categoría: nodo}, el primero que gane.
+
+    Las categorías se repiten entre niveles —"Utilidad de operación" cuelga de
+    sí misma— y el de arriba es el bueno.
+    """
+    fuera = {}
+
+    def bajar(nodos):
+        for n in nodos or []:
+            if isinstance(n, dict):
+                fuera.setdefault(n.get("category"), n)
+                bajar(n.get("children"))
+
+    bajar((payload or {}).get("data"))
+    return fuera
+
+
+def _anio(nodo, ejercicio):
+    v = (nodo or {}).get(str(ejercicio))
+    v = v.get("Total") if isinstance(v, dict) else v
+    return float(v) if isinstance(v, (int, float)) else None
+
+
+def ejercicios_declarados(*payloads):
+    """Qué años tienen declaración presentada, según los propios árboles.
+
+    Un año declarado deja rastro: alguno de sus nodos trae un número, aunque
+    sea cero. Un año sin declarar viene entero en null.
+    """
+    anios = set()
+    for p in payloads:
+        for nodo in _nodos(p).values():
+            for clave in nodo:
+                if clave.isdigit() and _anio(nodo, clave) is not None:
+                    anios.add(int(clave))
+    return sorted(anios)
+
+
+def desde_insights(balance, resultados, fuente="syntage"):
+    """Una fila de `info_fiscal` por ejercicio declarado.
+
+    Devuelve la lista de filas. Los años sin declaración no producen fila: no
+    hay nada que proyectar y una fila de ceros mentiría.
+    """
+    nb, nr = _nodos(balance), _nodos(resultados)
+    filas = []
+
+    for ejercicio in ejercicios_declarados(balance, resultados):
+        fila = {"ejercicio": ejercicio, "fuente": fuente, "declarado": True}
+
+        for campo, categorias in BALANCE_INSIGHT.items():
+            fila[campo] = next(
+                (_anio(nb.get(c), ejercicio) for c in categorias
+                 if _anio(nb.get(c), ejercicio) is not None), 0.0)
+
+        for campo, categorias in RESULTADOS_INSIGHT.items():
+            valor, concepto = None, None
+            for c in categorias:
+                v = _anio(nr.get(c), ejercicio)
+                if v is not None:
+                    valor, concepto = v, c
+                    break
+            # En un ejercicio declarado, el renglón en blanco es un cero.
+            if valor is None:
+                valor = 0.0
+            elif concepto in NEGATIVOS:
+                valor = -valor
+            fila[campo] = valor
+
+        inv = [n for cat, n in nb.items() if cat and "inventario" in cat.lower()]
+        vals = [_anio(n, ejercicio) for n in inv]
+        vals = [v for v in vals if v is not None]
+        fila["inventarios"] = sum(vals) if vals else 0.0
+
+        fila["dictaminados"] = None
+        filas.append(fila)
+
+    return filas
+
+
 def a_supabase(folio, filas, sb=None):
     """Guarda las filas en `info_fiscal`, una por ejercicio."""
     import db
