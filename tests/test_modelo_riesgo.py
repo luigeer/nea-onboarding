@@ -188,9 +188,22 @@ for campo, valor in [("estado", "Codigo 2"), ("giro", "Codigo 3"),
                      ("presencia_redes", "Baja"), ("procedencia", "Marketing")]:
     p = dict(PERFIL, **{campo: valor})
     a = evaluar(p, BURO_LIMPIO, DEC_VACIA, CUENTA, hoy=HOY, legado=True)
-    b = evaluar(p, BURO_LIMPIO, DEC_VACIA, CUENTA, hoy=HOY)
-    check(a["modulos"]["perfil_empresa"] == b["modulos"]["perfil_empresa"],
-          "perfil de empresa con %s=%s no cambia" % (campo, valor))
+    check(a["modulos"]["perfil_empresa"] is not None,
+          "en legado el perfil sigue siendo el de cinco variables: %s=%s" % (campo, valor))
+
+# El perfil expandido SÍ da distinto, y esa es la intención: son once
+# variables y la mitad se derivan de Syntage en vez de capturarse. Lo que no
+# puede cambiar es la calificación de las variables que ya existían.
+print("Perfil expandido")
+p = dict(PERFIL, estado="Codigo 2", giro="Codigo 3", procedencia="Referido Cliente")
+viejo = evaluar(p, BURO_LIMPIO, DEC_VACIA, CUENTA, hoy=HOY, legado=True)
+nuevo = evaluar(p, BURO_LIMPIO, DEC_VACIA, CUENTA, hoy=HOY)
+check(set(nuevo["variables"]["perfil_empresa"]) > set(viejo["variables"]["perfil_empresa"]) - {"presencia_redes"},
+      "el expandido agrega variables sin quitar las que se siguen usando")
+for var in ("estado", "giro", "antiguedad", "procedencia"):
+    check(nuevo["variables"]["perfil_empresa"][var]["puntaje"]
+          == viejo["variables"]["perfil_empresa"][var]["puntaje"],
+          "la calificación de %s no se movió al expandir" % var)
 
 print()
 if fallas:

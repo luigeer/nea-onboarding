@@ -41,7 +41,7 @@ UMBRAL_AMPLIACION = 0.85
 
 # Se guarda con cada evaluación. Un score de hace tres meses se calculó con
 # otras reglas, y sin esta marca no hay forma de saber cuáles.
-VERSION = "2026.08-correcciones-1a10"
+VERSION = "2026.08-perfil-expandido"
 
 
 def _escalon(valor, tramos, default):
@@ -317,8 +317,17 @@ def evaluar(perfil, buro, declaracion, cuentas, hoy=None, legado=False):
     monto = perfil.get("monto_solicitado")
 
     vars_buro, vetos = _buro(buro, legado)
+    # El perfil expandido vive en su propio módulo: son once variables y la
+    # mitad se derivan de Syntage. `legado` conserva las cinco originales para
+    # poder reproducir un score viejo.
+    if legado:
+        vars_perfil = _perfil_empresa(perfil, hoy)
+    else:
+        import perfil_empresa as _pe
+        vars_perfil = _pe.evaluar(perfil, hoy)
+
     modulos = {
-        "perfil_empresa": _perfil_empresa(perfil, hoy),
+        "perfil_empresa": vars_perfil,
         "buro": vars_buro,
         "edos_cuenta": _edos_cuenta(cuentas, monto, legado),
         "declaracion_anual": _declaracion_anual(declaracion, monto, legado),

@@ -12,6 +12,7 @@ este usa por dentro.
     python nea.py generar <FOLIO>          genera el paquete de contratos
     python nea.py subir <FOLIO>            sube el paquete a Drive
     python nea.py solicitud <FOLIO>        la lista de faltantes para ventas
+    python nea.py perfil <FOLIO>           deriva el perfil y captura lo que falta
     python nea.py riesgo <FOLIO>           corre el modelo y guarda el score
 
 Los expedientes se guardan en la carpeta `expedientes/` de tu computadora. Si
@@ -534,6 +535,114 @@ def cmd_solicitud(folio):
     return 0
 
 
+GIROS = [
+    ("Codigo 1", "ciclo de cobro más corto"),
+    ("Codigo 2", ""), ("Codigo 3", ""), ("Codigo 4", ""), ("Codigo 5", ""),
+    ("Codigo 6", "ciclo de cobro más largo"),
+]
+
+PROCEDENCIAS = ["Conocido Nea", "Referido Cliente", "Linkedin/Expo", "Otro"]
+
+REDES = ["Instagram", "Facebook", "LinkedIn", "TikTok", "X", "YouTube"]
+
+
+def cmd_perfil(folio):
+    """Deriva el perfil de Syntage y pregunta solo lo que no se puede derivar."""
+    import perfil_empresa
+
+    if not hay_supabase():
+        print("Este comando necesita Supabase.")
+        return 1
+
+    p = perfil_empresa.refrescar(folio)
+    titulo("Perfil de empresa — %s" % folio)
+
+    print("\n  Esto se derivó de Syntage, no hay que capturarlo:")
+    print("    Estado:            %s (%s)" % (p.get("estado_nombre") or "—",
+                                              p.get("estado") or "—"))
+    print("    Alta ante el SAT:  %s" % (p.get("fecha_constitucion") or "—"))
+    print("    Actividad:         %s" % (p.get("actividad_principal") or "—"))
+    print("    Empleados:         %s" % (p.get("empleados") if p.get("empleados") is not None else "—"))
+    print("    CFDI emitidos:     %s en %s año(s) con facturación"
+          % (p.get("cfdi_emitidos"), p.get("anios_con_facturacion")))
+    tc, tp = p.get("top_cliente") or {}, p.get("top_proveedor") or {}
+    print("    Cliente principal: %s (%s%%)" % (tc.get("nombre") or "—", tc.get("share")))
+    print("    Proveedor princ.:  %s (%s%%)" % (tp.get("nombre") or "—", tp.get("share")))
+    if p.get("compras_partes_relacionadas"):
+        print("    Compras al garante: %s%%" % p["compras_partes_relacionadas"])
+    rojas = p.get("banderas_rojas") or []
+    print("    Banderas en rojo:  %s" % (", ".join(rojas) if rojas else "ninguna"))
+
+    titulo("Lo que sí hay que capturar")
+
+    # Giro. La tabla de seis códigos por ciclo de conversión de efectivo no
+    # existe escrita: hasta que exista, el operador escoge viendo la actividad.
+    if p.get("giro"):
+        print("  Giro ya capturado: %s" % p["giro"])
+    else:
+        print("  Actividad SCIAN: %s" % (p.get("actividad_principal") or "—"))
+        print("  Código de giro (1 = ciclo de cobro más corto, 6 = más largo):")
+        for c, nota in GIROS:
+            print("    %s%s" % (c, " — %s" % nota if nota else ""))
+        g = preguntar("Código de giro (1-6)")
+        p["giro_codigo"] = "Codigo %s" % g.strip() if g and g.strip().isdigit() else None
+
+    if p.get("procedencia_lead"):
+        print("  Procedencia ya capturada: %s" % p["procedencia_lead"])
+    else:
+        print("\n  ¿De dónde llegó el prospecto?")
+        for i, x in enumerate(PROCEDENCIAS, 1):
+            print("    %d. %s" % (i, x))
+        r = preguntar("Número")
+        try:
+            p["procedencia_lead"] = PROCEDENCIAS[int(r) - 1]
+        except (TypeError, ValueError, IndexError):
+            p["procedencia_lead"] = None
+
+    if p.get("presencia_digital"):
+        print("  Presencia digital ya capturada.")
+    else:
+        p["presencia_digital"] = _capturar_presencia()
+
+    perfil_empresa.guardar(folio, p)
+    nota, desglose = perfil_empresa.nota_presencia_digital(p.get("presencia_digital"))
+    titulo("Guardado")
+    print("  Presencia digital: %s" % ("sin capturar" if nota is None else "%.2f" % nota))
+    if desglose:
+        print("    %d red(es) activa(s), %d seguidores en total"
+              % (desglose["num_redes_activas"], desglose["seguidores_totales"]))
+    print("\n  Para correr el modelo:\n    python nea.py riesgo %s" % folio)
+    return 0
+
+
+def _capturar_presencia():
+    """Hechos, no calificación: el modelo saca la nota de estos datos."""
+    print("\n  Presencia digital. Se capturan hechos; la nota la calcula el modelo.")
+    if not preguntar_si_no("¿La empresa tiene sitio web o redes?", default=True):
+        return {"sin_presencia": True, "redes": []}
+
+    pd = {"sitio_web": preguntar("Sitio web (enter si no tiene)"), "redes": []}
+    print("\n  Redes. Enter en el nombre para terminar.")
+    for i, r in enumerate(REDES, 1):
+        print("    %d. %s" % (i, r))
+    while True:
+        cual = preguntar("Red (número o nombre)")
+        if not cual:
+            break
+        try:
+            cual = REDES[int(cual) - 1]
+        except (ValueError, IndexError):
+            pass
+        seg = preguntar("  Seguidores")
+        pd["redes"].append({
+            "red": cual,
+            "url": preguntar("  URL") or None,
+            "seguidores": int(seg) if seg and seg.strip().isdigit() else None,
+            "ultima_publicacion": preguntar("  Última publicación (AAAA-MM-DD)") or None,
+        })
+    return pd
+
+
 def main(argv):
     if len(argv) < 2:
         return cmd_inicio()
@@ -553,6 +662,8 @@ def main(argv):
             return cmd_riesgo(args[0], forzar="--forzar" in args)
         if orden == "solicitud" and len(args) == 1:
             return cmd_solicitud(args[0])
+        if orden == "perfil" and len(args) == 1:
+            return cmd_perfil(args[0])
         if orden in ("ayuda", "-h", "--help"):
             print(__doc__)
             return 0

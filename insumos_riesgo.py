@@ -82,17 +82,24 @@ def _primero(fila, columnas):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def perfil(exp):
+def perfil(exp, folio=None, sb=None):
     """El perfil de empresa más el monto solicitado.
 
-    El monto sale del expediente y no del perfil capturado: dos de los cuatro
-    módulos lo dividen entre algo, así que si falta, el modelo entero deja de
-    significar. Los cuatro campos del perfil sí pueden faltar —el modelo los
-    trata como ausentes, no como malos—.
+    El perfil vive en su propia tabla —once variables, la mayoría derivadas de
+    Syntage— y se lee de ahí cuando hay folio. Lo que queda en el expediente se
+    usa como respaldo para poder correr el modelo sin base de datos.
+
+    El monto sale del expediente y no del perfil: dos de los cuatro módulos lo
+    dividen entre algo, así que si falta, el modelo entero deja de significar.
     """
     from schema_expediente import _get
 
     p = dict(_get(exp, "perfil_empresa", {}) or {})
+    if folio:
+        import perfil_empresa
+        guardado = perfil_empresa.cargar(folio, sb)
+        p.update({k: v for k, v in guardado.items() if v is not None})
+
     p["monto_solicitado"] = _get(exp, "credito.solicitada.linea")
     p["fecha_constitucion"] = _fecha(
         p.get("fecha_constitucion")
@@ -193,7 +200,7 @@ def reunir(folio, sb=None):
 
     return {
         "expediente": exp,
-        "perfil": perfil(exp),
+        "perfil": perfil(exp, folio, sb),
         "buro": b,
         "declaracion": d,
         "cuentas": cs,
