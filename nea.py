@@ -11,6 +11,8 @@ este usa por dentro.
     python nea.py estado <FOLIO>           qué falta para poder generar
     python nea.py generar <FOLIO>          genera el paquete de contratos
     python nea.py subir <FOLIO>            sube el paquete a Drive
+    python nea.py solicitud <FOLIO>        la lista de faltantes para ventas
+    python nea.py riesgo <FOLIO>           corre el modelo y guarda el score
 
 Los expedientes se guardan en la carpeta `expedientes/` de tu computadora. Si
 configuraste Supabase (ver SETUP_SUPABASE.md), además se sincronizan solos a la
@@ -419,6 +421,119 @@ def cmd_inicio():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def cmd_riesgo(folio, forzar=False):
+    """Corre el modelo sobre lo que hay en Supabase.
+
+    La compuerta se revisa aquí y no en el modelo, porque el modelo es una
+    función pura sobre cuatro diccionarios y no tiene por qué saber de dónde
+    salieron. Correrlo con módulos incompletos no da un score bajo: da un score
+    que no describe a nadie y que luego se cita como si sí.
+    """
+    import db
+    import insumos_riesgo
+    import modelo_riesgo
+    import validador
+
+    if not hay_supabase():
+        print("Este comando necesita Supabase: el modelo lee de las tablas.")
+        return 1
+
+    sb = db.cliente()
+    cob = sb.table("cobertura_riesgo").select("*").eq("folio", folio).execute().data
+    cob = cob[0] if cob else None
+
+    ins = insumos_riesgo.reunir(folio, sb)
+    exp = ins["expediente"]
+    rev = validador.revisar(exp, cobertura=cob)
+
+    razon = exp["cliente"]["validado"].get("razon_social") or folio
+    titulo("%s — %s" % (razon, folio))
+
+    if not rev.puede_pasar_a_riesgo and not forzar:
+        print("  La compuerta de riesgo está cerrada. Falta:\n")
+        for h in rev.detienen(validador.RIESGO):
+            print("    · %s" % h["asunto"])
+        print("\n  Para la lista que se le manda a ventas:")
+        print("    python nea.py solicitud %s" % folio)
+        print("\n  Para correr el modelo de todos modos, sabiendo que el score")
+        print("  no va a significar lo que parece:")
+        print("    python nea.py riesgo %s --forzar" % folio)
+        return 1
+
+    r = modelo_riesgo.evaluar(ins["perfil"], ins["buro"], ins["declaracion"],
+                              ins["cuentas"])
+    proc = ins["procedencia"]
+
+    if forzar and not rev.puede_pasar_a_riesgo:
+        print("  AVISO: se forzó con la compuerta cerrada. El score de abajo se")
+        print("  calculó sobre módulos incompletos y no es dictaminable.\n")
+
+    titulo("Insumos")
+    print("  Buró:               %s (%s)" % (proc["buro"] or "—",
+                                             proc["buro_resultado"] or "sin consulta"))
+    print("  Ejercicio fiscal:   %s" % (proc["ejercicio_fiscal"] or "ninguno con datos"))
+    print("  Estados de cuenta:  %d periodos en %d cuenta(s)"
+          % (proc["periodos_bancarios"], proc["cuentas_bancarias"]))
+    print("  Perfil de empresa:  %s" % ("capturado" if (cob or {}).get("perfil_completo")
+                                        else "sin capturar"))
+
+    titulo("Score")
+    print("  Score:              %s" % ("—" if r["score"] is None
+                                        else "%.4f" % r["score"]))
+    print("  Veredicto:          %s" % r["veredicto"])
+    print("  Solicitado:         %s" % pesos(r["monto_solicitado"]))
+    print("  Aprobado:           %s" % pesos(r["monto_aprobado"]))
+    if r["vetos"]:
+        print("  Vetos:              %s" % ", ".join(r["vetos"]))
+    if r["modulos_sin_datos"]:
+        # Un módulo ausente no bajó el score: se salió del promedio y los demás
+        # se renormalizaron. Decirlo evita que el número se lea como completo.
+        print("  Módulos sin datos:  %s (los pesos se renormalizaron)"
+              % ", ".join(m.replace("_", " ") for m in r["modulos_sin_datos"]))
+
+    titulo("Por módulo")
+    for nombre, valor in r["modulos"].items():
+        print("  %-20s %s" % (nombre.replace("_", " ") + ":",
+                              "sin datos" if valor is None else "%.4f" % valor))
+
+    mods = r["modulos"]
+    sb.table("evaluaciones_riesgo").insert({
+        "folio": folio,
+        "score": r["score"],
+        "veredicto": r["veredicto"],
+        "vetos": r["vetos"] or None,
+        "modulo_perfil": mods.get("perfil_empresa"),
+        "modulo_buro": mods.get("buro"),
+        "modulo_edos_cuenta": mods.get("edos_cuenta"),
+        "modulo_declaracion": mods.get("declaracion_anual"),
+        "modulos_sin_datos": r["modulos_sin_datos"] or None,
+        "linea_propuesta": r["monto_aprobado"],
+        "version_modelo": modelo_riesgo.VERSION,
+        "compuerta_abierta": rev.puede_pasar_a_riesgo,
+        "detalle": dict(r, procedencia=proc),
+        "creado_por": "nea.py riesgo",
+    }).execute()
+    print("\n  Evaluación guardada en evaluaciones_riesgo.")
+    return 0
+
+
+def cmd_solicitud(folio):
+    """El texto corto que ventas le reenvía al cliente."""
+    import db
+    import validador
+    exp = cargar(folio)
+    cob = None
+    if hay_supabase():
+        filas = db.cliente().table("cobertura_riesgo").select("*") \
+                  .eq("folio", folio).execute().data
+        cob = filas[0] if filas else None
+    r = validador.revisar(exp, cobertura=cob)
+    print()
+    print(validador.solicitud_breve(exp, r))
+    print()
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         return cmd_inicio()
@@ -434,6 +549,10 @@ def main(argv):
             return cmd_generar(args[0])
         if orden == "subir" and len(args) == 1:
             return cmd_subir(args[0])
+        if orden == "riesgo" and args:
+            return cmd_riesgo(args[0], forzar="--forzar" in args)
+        if orden == "solicitud" and len(args) == 1:
+            return cmd_solicitud(args[0])
         if orden in ("ayuda", "-h", "--help"):
             print(__doc__)
             return 0

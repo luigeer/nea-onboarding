@@ -39,6 +39,11 @@ FACTOR_AMPLIACION = 1.2      # arriba de 0.85 el modelo propone más de lo pedid
 UMBRAL_AMPLIACION = 0.85
 
 
+# Se guarda con cada evaluación. Un score de hace tres meses se calculó con
+# otras reglas, y sin esta marca no hay forma de saber cuáles.
+VERSION = "2026.08-correcciones-1a10"
+
+
 def _escalon(valor, tramos, default):
     """Devuelve el puntaje del primer tramo que cumple. tramos: [(prueba, puntaje)]"""
     if valor is None:
