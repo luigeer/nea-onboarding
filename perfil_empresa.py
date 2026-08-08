@@ -171,11 +171,15 @@ def derivar(exp, payloads, hoy=None):
     p["fecha_constitucion"] = (_fecha(resumen.get("registrationDate"))
                                or _fecha(_get(exp, "cliente.validado.fecha_constitucion")))
 
-    # Giro: la actividad SCIAN se deriva; el código de ciclo de conversión NO,
-    # porque la tabla de seis códigos no está en ningún lado del repositorio.
-    # Hasta que exista, el operador escoge el código viendo la actividad.
-    p["actividades"] = [a.get("name") for a in resumen.get("economicActivities") or []]
-    p["actividad_principal"] = p["actividades"][0] if p["actividades"] else None
+    # Giro: `giros.py` propone un código leyendo el nombre oficial de la
+    # actividad, y el operador confirma. La sugerencia se guarda aparte de la
+    # confirmación para que después se pueda ver cuántas veces el operador
+    # corrigió a la tabla —que es cómo se sabe si la tabla sirve—.
+    actividades = resumen.get("economicActivities") or []
+    p["actividades"] = actividades
+    p["actividad_principal"] = actividades[0].get("name") if actividades else None
+    import giros
+    p["giro_sugerido"], p["giro_desglose"] = giros.sugerir_de_actividades(actividades)
 
     # Sustancia operativa.
     p["empleados"] = resumen.get("totalEmployees")
@@ -299,6 +303,11 @@ def evaluar(p, hoy=None):
         (lambda x: x >= 9, 1.0), (lambda x: x >= 4, 0.7),
         (lambda x: x >= 2, 0.5)], 0.25))
 
+    # El operador manda; la sugerencia solo evita que el campo quede vacío.
+    # Que una coincidencia de texto decida el 15% del módulo sin que nadie la
+    # haya visto es peor que dejar la variable ausente, así que se registra
+    # cuál de las dos se usó.
+    p.setdefault("giro", p.get("giro_codigo") or p.get("giro_sugerido"))
     v["giro"] = (PESOS["giro"],
                  {"Codigo 1": 1.0, "Codigo 2": 0.8, "Codigo 3": 0.65,
                   "Codigo 4": 0.5, "Codigo 5": 0.3, "Codigo 6": 0.15}
@@ -376,7 +385,8 @@ DERIVADOS = ("estado_nombre", "actividad_principal", "actividades", "empleados",
              "cfdi_emitidos", "anios_con_facturacion", "ultimo_anio_facturado",
              "ingresos_cfdi", "top_cliente", "top_proveedor", "ventas_gobierno",
              "compras_partes_relacionadas", "ventas_partes_relacionadas",
-             "banderas_rojas", "banderas_evaluadas", "riesgos_detalle")
+             "banderas_rojas", "banderas_evaluadas", "riesgos_detalle",
+             "giro_sugerido", "giro_desglose")
 
 MANUALES = ("giro_codigo", "procedencia_lead", "presencia_digital")
 

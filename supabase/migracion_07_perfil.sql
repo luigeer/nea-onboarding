@@ -6,8 +6,10 @@
 -- estaba guardado sin usarse.
 --
 -- Lo que sigue siendo captura del operador:
---   · el código de giro, porque la tabla de seis códigos por ciclo de
---     conversión de efectivo no existe escrita en ningún lado —está pendiente—
+--   · el código de giro. La tabla de seis códigos ya existe en `giros.py` y
+--     sugiere uno leyendo el nombre oficial de la actividad del SAT, pero el
+--     operador confirma: una coincidencia de texto no es una clasificación.
+--     Se guardan las dos, la sugerida y la confirmada.
 --   · la procedencia del prospecto, que solo la sabe ventas
 --   · la presencia digital
 --
@@ -43,7 +45,9 @@ create table if not exists perfil_empresa (
   riesgos_detalle   jsonb,
 
   -- captura del operador
-  giro_codigo       text,          -- Codigo 1..6
+  giro_sugerido     text,          -- lo que propone giros.py por palabra clave
+  giro_desglose     jsonb,         -- qué actividad y qué palabra dispararon cada código
+  giro_codigo       text,          -- Codigo 1..6, confirmado por el operador
   procedencia_lead  text,          -- Conocido Nea | Referido Cliente | Linkedin/Expo | otro
   presencia_digital jsonb,         -- {sitio_web, sin_presencia, redes:[{red,url,seguidores,ultima_publicacion}]}
   capturado_por     text
