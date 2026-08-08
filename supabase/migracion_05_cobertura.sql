@@ -18,7 +18,12 @@
 -- SAT tiene—, pero que estén vacías es una señal que el resumen ejecutivo
 -- necesita ver sin volver a consultar las tablas.
 
-create or replace view cobertura_riesgo as
+-- `create or replace view` solo deja agregar columnas al final; aquí se
+-- intercala `consultas_buro_total`, así que hay que tirarla. Es una vista hoja:
+-- ninguna otra vista ni función la referencia, solo la lee el código Python.
+drop view if exists cobertura_riesgo;
+
+create view cobertura_riesgo as
 select
   e.folio,
   e.razon_social,
