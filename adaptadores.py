@@ -266,8 +266,18 @@ def para_adenda_pm(exp):
 # 7. Adenda de obligado solidario — persona física
 # ─────────────────────────────────────────────────────────────────────────────
 def para_adenda_pf(exp):
-    os_ = _get(exp, "obligado_solidario", {})
-    pf = dict(os_.get("persona_fisica") or {})
+    """La adenda de obligado solidario persona física.
+
+    Lee de `obligado_solidario_pf` cuando existe: ese es el garante personal que
+    acompaña a uno corporativo. Si no, cae al `persona_fisica` de dentro de
+    `obligado_solidario`, que es el caso de un garante que solo es persona física.
+    """
+    propio = _get(exp, "obligado_solidario_pf", {}) or {}
+    if propio.get("nombre"):
+        os_, pf = propio, dict(propio)
+    else:
+        os_ = _get(exp, "obligado_solidario", {})
+        pf = dict(os_.get("persona_fisica") or {})
     ident = pf.pop("identificacion", {}) or {}
     obligado = {
         "nombre": pf.get("nombre"),

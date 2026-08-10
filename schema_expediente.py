@@ -107,6 +107,17 @@ def expediente_vacio():
                        "evaluado_por": None, "proxima_actualizacion": None},
 
         "flags": {"domiciliacion": False, "obligado_solidario": False},
+        # Garante persona física que acompaña —no sustituye— al corporativo.
+        # Ver el comentario en `documentos_aplicables`.
+        "obligado_solidario_pf": {
+            "nombre": None, "nacionalidad": None, "fecha_lugar_nacimiento": None,
+            "curp": None, "rfc": None, "ocupacion": None, "domicilio": None,
+            "telefono": None, "correo": None, "estado_civil": None,
+            "regimen_conyugal": None, "conyuge": None,
+            "identificacion": {"tipo": None, "numero": None,
+                               "autoridad_emisora": None},
+            "motivo": None,     # por qué se pidió además de la garantía corporativa
+        },
         "obligado_solidario": {
             "tipo": None,                  # ver TIPOS_OBLIGADO
             "es_cliente": False, "expediente_ref": None,
@@ -205,11 +216,31 @@ def compuertas_generacion(exp):
     ALTAS = ("alta", "bloqueante")
     INTERMEDIAS = ("intermedia", "advertencia")
 
+    # Hay dos clases de observación y la distinción importa aquí:
+    #
+    #   documento  el papel existe y no sirve. Una identificación vencida no se
+    #              justifica: se reemplaza. Es el caso que esta compuerta fue
+    #              escrita para atajar.
+    #   riesgo     un hecho del negocio que la revisión encontró —que todos los
+    #              depósitos vengan del garante, que la cuenta entregada no sea
+    #              la operativa—. No hay documento que reemplazar: eso lo resuelve
+    #              una decisión de crédito, y la decisión se toma sabiéndolo.
+    #
+    # Sin esta distinción un hallazgo de riesgo grave bloqueaba la generación sin
+    # salida posible, y la única forma de avanzar era bajarle la gravedad, que es
+    # justo lo que no se quiere que alguien haga. Un riesgo alto sí se puede
+    # aceptar, pero exige justificación escrita Y nombre de quien la firma.
     for o in _get(exp, "observaciones", []):
         sev, estado = o.get("severidad"), o.get("estado")
+        es_riesgo = o.get("clase") == "riesgo"
         if sev in ALTAS and estado != "resuelta":
-            fallas.append("Observación de gravedad alta sin resolver: %s"
-                          % o.get("descripcion"))
+            if es_riesgo and estado == "aceptada":
+                if not o.get("aceptada_por"):
+                    fallas.append("Riesgo alto aceptado sin nombre de quien lo asume: %s"
+                                  % o.get("descripcion"))
+            else:
+                fallas.append("Observación de gravedad alta sin resolver: %s"
+                              % o.get("descripcion"))
         if sev in INTERMEDIAS and estado not in ("resuelta", "aceptada"):
             fallas.append("Observación sin resolver ni aceptar formalmente: %s"
                           % o.get("descripcion"))
@@ -266,6 +297,17 @@ def documentos_aplicables(exp):
         docs.append("adenda_os_pm"
                     if _get(exp, "obligado_solidario.tipo") == "persona_moral"
                     else "adenda_os_pf")
+
+    # Una garantía corporativa y una personal pueden coexistir, y a veces deben.
+    # El caso que lo motivó: la escritura del garante lo faculta a "obligar
+    # cambiariamente a la sociedad" pero no dice "solidariamente", así que la
+    # exigibilidad de la adenda corporativa queda en duda. La solución no fue
+    # bajarle la gravedad a la observación: fue que el accionista de control
+    # firmara además por su propio derecho, de modo que si la corporativa falla
+    # quede la personal.
+    if _get(exp, "obligado_solidario_pf.nombre"):
+        if "adenda_os_pf" not in docs:
+            docs.append("adenda_os_pf")
 
     if _get(exp, "flags.domiciliacion"):
         docs.append("domiciliacion")

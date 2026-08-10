@@ -55,9 +55,10 @@ CATALOGO = {
                                  "Formato de Identificación del Beneficiario Controlador"),
     "anexo_razonado": ("Anexo_Analisis_Razonado", generar_anexo_razonado, None,
                        "Anexo de Análisis Razonado del Beneficiario Controlador"),
-    "adenda_os_pm": ("Adenda_OS", generar_adenda, "Adenda_Obligado_Solidario_Template.pdf",
+    "adenda_os_pm": ("Adenda_OS_PM", generar_adenda,
+                     "Adenda_Obligado_Solidario_Template.pdf",
                      "Adenda de Obligado Solidario (persona moral)"),
-    "adenda_os_pf": ("Adenda_OS", generar_adenda_pf,
+    "adenda_os_pf": ("Adenda_OS_PF", generar_adenda_pf,
                      "Adenda_Obligado_Solidario_Persona_Fisica_Template.pdf",
                      "Adenda de Obligado Solidario (persona física)"),
     "domiciliacion": ("Domiciliacion", generar_domiciliacion,
@@ -78,9 +79,15 @@ def _firmantes(clave, exp):
                "correo": _get(exp, "representante_legal.propuesto.correo")}
     cofirmantes = [{"rol": "cofirmante_cliente", "nombre": c.get("nombre"),
                     "correo": c.get("correo")} for c in _get(exp, "cofirmantes", [])]
+    # La compuerta exige `bc_firmado_por` y el documento imprimía
+    # `cumplimiento.responsable`: dos campos para lo mismo, así que el formato que
+    # legalmente requiere firma de cumplimiento salía con la línea en blanco
+    # aunque la compuerta estuviera satisfecha. Se lee el detallado y se cae al
+    # que valida la compuerta.
     resp = _get(exp, "cumplimiento.responsable") or {}
-    cumplimiento = {"rol": "cumplimiento", "nombre": resp.get("nombre"),
-                    "cargo": resp.get("cargo")}
+    cumplimiento = {"rol": "cumplimiento",
+                    "nombre": resp.get("nombre") or _get(exp, "cumplimiento.bc_firmado_por"),
+                    "cargo": resp.get("cargo") or "Oficial de Cumplimiento"}
 
     if clave == "contrato":
         return [cliente] + cofirmantes + [NEA_FIRMANTE]
@@ -100,12 +107,16 @@ def _firmantes(clave, exp):
              "cargo": "Representante Legal de %s" % (os_.get("razon_social") or "")},
             NEA_FIRMANTE]
     if clave == "adenda_os_pf":
-        pf = _get(exp, "obligado_solidario.persona_fisica", {}) or {}
+        pf = _get(exp, "obligado_solidario_pf", {}) or {}
+        raiz = "obligado_solidario_pf"
+        if not pf.get("nombre"):
+            pf = _get(exp, "obligado_solidario.persona_fisica", {}) or {}
+            raiz = "obligado_solidario"
         firmas = [cliente] + cofirmantes + [
             {"rol": "obligado_solidario", "nombre": pf.get("nombre"),
              "cargo": "Por su propio derecho", "correo": pf.get("correo")},
             NEA_FIRMANTE]
-        cy = _get(exp, "obligado_solidario.conyuge")
+        cy = _get(exp, "%s.conyuge" % raiz)
         if cy:
             firmas.append({"rol": "conyuge", "nombre": cy.get("nombre"),
                            "cargo": "Por su propio derecho (Anexo A)"})
@@ -160,6 +171,17 @@ def generar_paquete(exp, dir_salida, solo_compuertas=False):
                   "linea_autorizada": _get(exp, "credito.autorizada.linea"),
                   "documentos": [], "grupos_de_firma": []}
     grupos = {}
+
+    sufijos = {}
+    for clave in claves:
+        sufijo = CATALOGO[clave][0]
+        if sufijo in sufijos:
+            raise ValueError(
+                "%s y %s escribirian el mismo archivo (%s). Cada documento del "
+                "paquete necesita su propio nombre: si no, uno pisa al otro y el "
+                "manifiesto declara mas documentos de los que existen."
+                % (sufijos[sufijo], clave, sufijo))
+        sufijos[sufijo] = clave
 
     for clave in claves:
         sufijo, fn, template, etiqueta = CATALOGO[clave]

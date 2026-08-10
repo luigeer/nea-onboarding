@@ -305,6 +305,23 @@ def _seccion_ii(D, S):
     return out
 
 
+def _nombres_apoderados(apoderados):
+    """Los nombres de los apoderados, en una línea.
+
+    `apoderados` es una lista de diccionarios —nombre, cargo, facultades— y antes
+    se le hacía join directo como si fueran cadenas: reventaba en cuanto un
+    expediente traía apoderados capturados de verdad. Se aceptan las dos formas
+    porque los expedientes viejos guardaban solo el nombre.
+    """
+    nombres = []
+    for a in apoderados or []:
+        nombre = a.get("nombre") if isinstance(a, dict) else a
+        if nombre:
+            cargo = a.get("cargo") if isinstance(a, dict) else None
+            nombres.append("%s (%s)" % (nombre, cargo) if cargo else str(nombre))
+    return ", ".join(nombres) or None
+
+
 def _seccion_iii(D, S):
     out = [_barra("III. ESTRUCTURA ACCIONARIA Y ÓRGANO DE ADMINISTRACIÓN", S), Spacer(1, 4)]
 
@@ -363,7 +380,7 @@ def _seccion_iii(D, S):
                  ("Presidente", org.get("presidente")),
                  ("Secretario", org.get("secretario")),
                  ("Comisario", org.get("comisario")),
-                 ("*Apoderados", ", ".join(org.get("apoderados", [])) or None)]
+                 ("*Apoderados", _nombres_apoderados(org.get("apoderados")))]
         out += [_campos(pares, S), Spacer(1, 4)]
         out.append(Paragraph("Fuente preferente de este apartado: poderes vigentes inscritos en "
                              "el Registro Público de Comercio. El acta constitutiva se usa como "

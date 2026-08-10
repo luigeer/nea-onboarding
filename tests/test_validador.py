@@ -361,3 +361,42 @@ n = reconciliar(e, revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA))
 check(any(o.get("estado") == "abierta" and o.get("tipo") == "flujo_operativo"
           for o in e["observaciones"]),
       "el juicio humano sobrevive a la reconciliacion: nadie lo va a volver a levantar")
+
+# ── la compuerta distingue documento invalido de hallazgo de riesgo ──────────
+print("Compuerta: documento contra riesgo")
+from schema_expediente import compuertas_generacion
+
+def listo_para_generar(**cambios):
+    e = completo()
+    e["credito"]["autorizada"] = {"linea": 150000.0}
+    e["criterio_identificacion"] = "participacion"
+    e["cumplimiento"] = {"bc_firmado_por": "Cumplimiento Nea"}
+    e.update(cambios)
+    return e
+
+check(not compuertas_generacion(listo_para_generar()),
+      "un expediente completo y con linea autorizada puede generar")
+
+# Un documento invalido NO se acepta con justificacion: se reemplaza.
+doc = listo_para_generar(observaciones=[{
+    "tipo": "vigencia", "severidad": ALTA, "estado": "aceptada",
+    "justificacion": "lo aceptamos asi", "aceptada_por": "Cumplimiento",
+    "descripcion": "Identificacion del representante vencida"}])
+check(any("gravedad alta sin resolver" in f for f in compuertas_generacion(doc)),
+      "una identificacion vencida sigue bloqueando aunque alguien la 'acepte'")
+
+# Un hallazgo de riesgo si se puede asumir, con nombre y justificacion.
+riesgo = listo_para_generar(observaciones=[{
+    "tipo": "flujo_operativo", "clase": "riesgo", "severidad": ALTA,
+    "estado": "aceptada", "justificacion": "El comite lo evaluo y lo asume",
+    "aceptada_por": "Comite de credito",
+    "descripcion": "El 100% de los depositos viene del obligado solidario"}])
+check(not compuertas_generacion(riesgo),
+      "un riesgo alto asumido por escrito y con nombre si deja generar")
+
+sin_nombre = listo_para_generar(observaciones=[{
+    "tipo": "flujo_operativo", "clase": "riesgo", "severidad": ALTA,
+    "estado": "aceptada", "justificacion": "lo asumimos",
+    "descripcion": "El 100% de los depositos viene del obligado solidario"}])
+check(any("sin nombre de quien lo asume" in f for f in compuertas_generacion(sin_nombre)),
+      "pero no sin el nombre de quien lo asume: alguien tiene que firmarlo")
