@@ -323,3 +323,33 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+
+
+def subir_analisis(svc, folio, archivos):
+    """Sube los documentos de análisis a '2 Análisis interno'.
+
+    El resumen ejecutivo y las listas de comprobación de CEP no son documentos
+    del cliente ni documentos generados para firma: son el rastro de cómo se
+    tomó la decisión. Van a su propia subcarpeta y se versionan igual que el
+    resto —si ya existe uno con el mismo nombre, el anterior pasa a
+    '0 Superados'—, porque un resumen ejecutivo viejo pisado en silencio es
+    peor que dos versiones fechadas.
+    """
+    from googleapiclient.http import MediaFileUpload
+    exp = carpeta_expediente(svc, folio)
+    ids = asegurar_estructura(svc, exp["id"])
+    existentes = {f["name"]: f for f in hijos(svc, ids["2"])}
+
+    subidos = []
+    for ruta in archivos:
+        if not os.path.exists(ruta):
+            continue
+        nombre = os.path.basename(ruta)
+        if nombre in existentes:
+            superar(svc, folio, existentes[nombre]["id"], ids=ids)
+        media = MediaFileUpload(ruta, mimetype="text/plain")
+        f = svc.files().create(
+            body={"name": nombre, "parents": [ids["2"]]},
+            media_body=media, fields=CAMPOS, supportsAllDrives=True).execute()
+        subidos.append(f)
+    return subidos

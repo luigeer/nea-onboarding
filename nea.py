@@ -421,7 +421,19 @@ def cmd_subir(folio):
         return 1
     import drive_cliente
     titulo("Subiendo a Drive")
-    for f in drive_cliente.subir_paquete(drive_cliente.servicio(), folio, destino):
+    svc = drive_cliente.servicio()
+
+    # El analisis va aparte de los documentos de firma: son dos cosas distintas
+    # y en una revision de cumplimiento se buscan en lugares distintos.
+    import glob
+    analisis = sorted(glob.glob(os.path.join(RAIZ, "out", "%s_*.txt" % folio))
+                      + glob.glob(os.path.join(RAIZ, "out", "%s_*.txt"
+                                               % folio.split("-")[0])))
+    if analisis:
+        for f in drive_cliente.subir_analisis(svc, folio, analisis):
+            print("  2 Analisis interno   %s" % f["name"])
+
+    for f in drive_cliente.subir_paquete(svc, folio, destino):
         print("  Subido: %s" % f["name"])
     return 0
 

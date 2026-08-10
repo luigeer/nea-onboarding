@@ -403,6 +403,52 @@ def _bloque_modelo(d, L):
     L.append("")
 
 
+def _bloque_autorizacion(d, L):
+    """La decisión, si ya se tomó, con los riesgos que alguien firmó asumir.
+
+    Un resumen que enumera hallazgos y no dice qué se decidió sirve para decidir
+    una vez y no sirve para auditar. Aquí va la línea autorizada, quién la
+    autorizó, y cada riesgo asumido con su justificación y su nombre: es lo que
+    contesta, en un año, "¿sabían esto cuando firmaron?".
+    """
+    aut = (d["datos"].get("credito") or {}).get("autorizada") or {}
+    asumidos = [o for o in (d["datos"].get("observaciones") or [])
+                if o.get("estado") == "aceptada" and o.get("justificacion")]
+    if not aut.get("linea") and not asumidos:
+        return
+
+    L.append("LA DECISIÓN")
+    L.append("-" * 11)
+    if aut.get("linea"):
+        L.append("Línea autorizada   %s, pago %s" % (_pesos(aut.get("linea")),
+                                                     (aut.get("plazo") or "-").lower()))
+        L.append("Autorizada por     %s" % (aut.get("autorizada_por") or "-"))
+        L.append("Fecha              %s" % (aut.get("autorizada_el")
+                                            or aut.get("fecha") or "-"))
+        if aut.get("veredicto_modelo") and aut.get("veredicto_modelo") != "Aprobado":
+            L.append("")
+            for renglon in _envolver(
+                    "El modelo no la aprobaba por si solo: dio %s. La linea se autoriza "
+                    "por decision de comite, no por el score."
+                    % aut.get("veredicto_modelo"), 74):
+                L.append(renglon)
+        if aut.get("nota"):
+            L.append("")
+            for renglon in _envolver(aut["nota"], 74):
+                L.append(renglon)
+    if asumidos:
+        L.append("")
+        L.append("Riesgos asumidos por escrito (%d):" % len(asumidos))
+        for o in asumidos:
+            titulo = (o.get("descripcion") or "").split(" — ")[0]
+            L.append("")
+            L.append("  - %s" % _envolver(titulo, 70)[0])
+            for renglon in _envolver(o["justificacion"], 68):
+                L.append("    %s" % renglon)
+            L.append("    firma: %s" % (o.get("aceptada_por") or "sin nombre"))
+    L.append("")
+
+
 def _bloque_senales(d, L):
     ss = senales(d)
     L.append("LO QUE EL SCORE NO CAPTURA")
@@ -502,6 +548,7 @@ def texto(d):
     L = []
     _encabezado(d, L)
     _bloque_modelo(d, L)
+    _bloque_autorizacion(d, L)
     _bloque_senales(d, L)
     _bloque_garantia(d, L)
     _bloque_observaciones(d, L)
