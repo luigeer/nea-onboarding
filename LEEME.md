@@ -14,11 +14,15 @@ computadora y funciona sin internet.
 
 ## Usar
 
-Todo pasa por un solo comando. Sin argumentos, te dice qué hay y qué sigue:
+Todo pasa por un solo comando. Sin argumentos, muestra el tablero: todos los
+expedientes y qué detiene a cada uno.
 
 ```bash
 python nea.py
 ```
+
+**El paso a paso completo de un cliente nuevo está en [OPERAR.md](OPERAR.md)**,
+incluyendo qué partes necesitan una persona y por qué.
 
 ### Cliente nuevo
 

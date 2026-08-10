@@ -440,11 +440,22 @@ def cmd_subir(folio):
 
 
 def cmd_inicio():
+    """La pantalla de entrada es el tablero.
+
+    Antes esta pantalla contaba compuertas de generación mientras el tablero
+    calculaba el bloqueo real, así que las dos decían cosas distintas del mismo
+    expediente: una reportaba "listo para generar" uno que ya se había generado
+    y estaba en firma. Dos fuentes de estatus es peor que una — si no coinciden,
+    ninguna se cree. Sin Supabase se cae a la lista local, que es lo único que
+    hay.
+    """
+    if hay_supabase():
+        return cmd_tablero()
+
     exps = expedientes_locales()
     titulo("Onboarding Nea")
-
-    if not hay_supabase():
-        print("  Supabase todavía no está configurado (opcional; ver SETUP_SUPABASE.md).")
+    print("  Supabase todavía no está configurado (ver SETUP_SUPABASE.md).")
+    print("  Sin él no hay tablero: se lista lo que hay en disco.")
 
     if not exps:
         print("\n  No hay expedientes todavía.")
