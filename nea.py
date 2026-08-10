@@ -6,6 +6,8 @@ Esto es lo único que necesitas correr. Los demás archivos son las piezas que
 este usa por dentro.
 
     python nea.py                          qué hay y qué sigue
+    python nea.py tablero                  todos los onboardings y qué los detiene
+    python nea.py historial <FOLIO>        por dónde pasó y cuánto tardó
     python nea.py nuevo <csf.pdf>          abre un expediente leyendo la CSF
     python nea.py csf <FOLIO> <pdf> <quién>  agrega otra CSF al expediente
     python nea.py estado <FOLIO>           qué falta para poder generar
@@ -790,6 +792,145 @@ def cmd_drive():
         return 1
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# El tablero
+# ─────────────────────────────────────────────────────────────────────────────
+# Qué detiene a cada expediente NO sale de una consulta: las compuertas viven en
+# el código y dependen de las reglas de negocio. La vista `tablero` da los
+# hechos; esto les pone encima el bloqueo real, en una línea, para que se pueda
+# decidir a cuál dedicarle el día sin abrir seis expedientes.
+ETAPAS = ["apertura", "validacion", "riesgo", "generacion", "firma", "cerrado"]
+
+# Cuántos días en una etapa antes de considerarla atorada. No es lo mismo llevar
+# una semana esperando documentos del cliente que una semana en generación, donde
+# no depende de nadie más que de nosotros.
+DIAS_ATORADO = {"apertura": 3, "validacion": 7, "riesgo": 3,
+                "generacion": 2, "firma": 10}
+
+
+def _bloqueo(exp, fila, cobertura):
+    """Una línea que dice qué detiene este expediente, o None si nada.
+
+    Se contesta en el orden en que hay que resolverlo, no en el orden en que se
+    descubre: primero lo que le toca al cliente, porque eso es lo que tarda.
+
+    `cobertura` es el renglón íntegro de `cobertura_riesgo`. Se pasa completo a
+    propósito: antes lo armaba tomando columnas del tablero, y como la vista no
+    expone las mismas, el validador leía huecos donde había datos y reportaba
+    "falta la información fiscal" en expedientes que ya habían corrido el modelo.
+    Un contrato copiado a medias falla así, en silencio y con seguridad.
+    """
+    import validador
+    from schema_expediente import compuertas_generacion
+
+    r = validador.revisar(exp, cobertura=cobertura)
+
+    if not r.puede_pasar_a_riesgo:
+        faltan = r.detienen(validador.RIESGO)
+        return "riesgo cerrado: %s" % faltan[0]["asunto"] if faltan else None
+    if not fila.get("linea_autorizada"):
+        if fila.get("score") is None:
+            return "falta correr el modelo"
+        return "esperando autorizacion de la linea (modelo: %s)" % fila.get("veredicto")
+
+    fallas = compuertas_generacion(exp)
+    if fallas:
+        return "generacion cerrada: %s" % fallas[0][:80]
+    if fila.get("etapa") != "firma":
+        return "listo para generar"
+    return None
+
+
+def cmd_tablero(solo_atorados=False):
+    """Todos los onboardings en un renglon cada uno."""
+    import db
+    if not hay_supabase():
+        print("Este comando necesita Supabase.")
+        return 1
+    sb = db.cliente()
+    filas = sb.table("tablero").select("*").execute().data or []
+    if not filas:
+        print("No hay expedientes todavia.")
+        return 0
+    cobs = {c["folio"]: c for c in
+            (sb.table("cobertura_riesgo").select("*").execute().data or [])}
+
+    orden = {e: i for i, e in enumerate(ETAPAS)}
+    filas.sort(key=lambda f: (orden.get(f.get("etapa"), 99),
+                              -(f.get("dias_en_etapa") or 0)))
+
+    titulo("Tablero de onboardings")
+    print("  %-10s %-30s %-11s %5s %-11s %s"
+          % ("FOLIO", "CLIENTE", "ETAPA", "DIAS", "SCORE", "QUE LO DETIENE"))
+    print("  " + "-" * 100)
+
+    mostrados = 0
+    for f in filas:
+        dias = f.get("dias_en_etapa") or 0
+        atorado = dias >= DIAS_ATORADO.get(f.get("etapa"), 99)
+        try:
+            exp = db.cargar(f["folio"])
+            bloqueo = _bloqueo(exp, f, cobs.get(f["folio"])) or ""
+        except Exception as e:
+            bloqueo = "no se pudo evaluar: %s" % str(e)[:40]
+        if solo_atorados and not atorado and bloqueo not in ("", "listo para generar"):
+            pass
+        elif solo_atorados and not atorado:
+            continue
+
+        score = f.get("score")
+        print("  %-10s %-30s %-11s %s%4d %-11s %s"
+              % (f["folio"], (f.get("razon_social") or "")[:30],
+                 f.get("etapa") or "?", "!" if atorado else " ", dias,
+                 "-" if score is None else "%.4f %s" % (float(score),
+                                                       (f.get("veredicto") or "")[:1]),
+                 bloqueo[:64]))
+        mostrados += 1
+
+    print()
+    print("  %d expediente(s). El ! marca los que llevan mas dias de lo normal en"
+          % mostrados)
+    print("  su etapa: %s." % ", ".join("%s %dd" % (e, d)
+                                        for e, d in DIAS_ATORADO.items()))
+    pend = sum(f.get("pendientes_cliente") or 0 for f in filas)
+    if pend:
+        print("  %d pendiente(s) del cliente en total. Por expediente:" % pend)
+        for f in filas:
+            if f.get("pendientes_cliente"):
+                print("      python nea.py solicitud %s   (%d)"
+                      % (f["folio"], f["pendientes_cliente"]))
+    return 0
+
+
+def cmd_historial(folio):
+    """Por donde paso este expediente y cuanto tardo en cada etapa."""
+    import db
+    if not hay_supabase():
+        print("Este comando necesita Supabase.")
+        return 1
+    sb = db.cliente()
+    filas = sb.table("bitacora_etapas").select("*").eq("folio", folio)               .order("entro_el").execute().data or []
+    if not filas:
+        print("Sin bitacora para %s." % folio)
+        return 1
+
+    titulo("Historial de %s" % folio)
+    from datetime import datetime, timezone
+
+    def cuando(s):
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+
+    for i, f in enumerate(filas):
+        ini = cuando(f["entro_el"])
+        fin = cuando(filas[i + 1]["entro_el"]) if i + 1 < len(filas) else               datetime.now(timezone.utc)
+        dias = (fin - ini).days
+        horas = int((fin - ini).total_seconds() // 3600) % 24
+        actual = " (actual)" if i + 1 == len(filas) else ""
+        print("  %s  %-12s %3dd %2dh%s" % (ini.strftime("%Y-%m-%d %H:%M"),
+                                           f["etapa_a"], dias, horas, actual))
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         return cmd_inicio()
@@ -813,6 +954,10 @@ def main(argv):
             return cmd_perfil(args[0])
         if orden == "drive":
             return cmd_drive()
+        if orden in ("tablero", "tab"):
+            return cmd_tablero(solo_atorados="--atorados" in args)
+        if orden == "historial" and len(args) == 1:
+            return cmd_historial(args[0])
         if orden == "resumen" and args:
             return cmd_resumen(args[0], guardar_archivo="--guardar" in args)
         if orden in ("ayuda", "-h", "--help"):
