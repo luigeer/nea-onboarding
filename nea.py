@@ -119,7 +119,27 @@ def guardar(exp, avisar=True):
 
 
 def cargar(folio):
+    """El expediente, preferiendo el más reciente entre disco y Supabase.
+
+    Antes ganaba siempre el disco, y eso hacía que dos equipos —o una sesión
+    que escribió directo a la base— divergieran sin avisar: el comando leía un
+    expediente viejo y reportaba faltantes que ya se habían resuelto. El disco
+    sigue siendo la red de seguridad cuando no hay base.
+    """
     ruta = ruta_local(folio)
+    if os.path.exists(ruta) and hay_supabase():
+        try:
+            import db
+            fila = db.cliente().table("expedientes").select("actualizado")                      .eq("folio", folio).execute().data
+            remoto = (fila[0].get("actualizado") or "") if fila else ""
+            local = _actualizado_local(ruta)
+            if remoto and local and remoto > local:
+                exp = db.cargar(folio)
+                guardar(exp, avisar=False)
+                print("  (se trajo la versión de Supabase, que es más reciente)")
+                return exp
+        except Exception:
+            pass          # sin red se sigue con el disco, que es el punto
     if os.path.exists(ruta):
         with open(ruta, encoding="utf-8") as fh:
             return json.load(fh)
@@ -132,6 +152,16 @@ def cargar(folio):
         "No encuentro el expediente %s.\n"
         "Los expedientes viven en la carpeta 'expedientes'. Con 'python nea.py' "
         "ves la lista." % folio)
+
+
+def _actualizado_local(ruta):
+    """La marca de tiempo del archivo, en el mismo formato ISO que Supabase."""
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromtimestamp(os.path.getmtime(ruta), tz=timezone.utc)
+        return t.isoformat()
+    except OSError:
+        return None
 
 
 def expedientes_locales():

@@ -299,3 +299,33 @@ if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
     sys.exit(1)
 print("Todas las pruebas pasaron.")
+
+# ── el tracker de ventas contra la cotizacion firmada ────────────────────────
+print("Discrepancias con el tracker")
+def con_tracker(tracker):
+    e = completo()
+    e["credito"]["solicitada"]["plazo"] = "Semanal"
+    e["tracker"] = tracker
+    return e
+
+
+e = con_tracker({"linea": "$150,000", "plazo": "Semanal", "mensualidad": None})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(not any(h["tipo"] == "discrepancia_tracker" for h in r.hallazgos),
+      "un monto escrito con formato distinto no es una discrepancia")
+
+e = con_tracker({"plazo": "mensual"})
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+disc = [h for h in r.hallazgos if h["tipo"] == "discrepancia_tracker"]
+check(len(disc) == 1 and "Periodicidad" in disc[0]["asunto"],
+      "pero una periodicidad distinta si se levanta")
+check("Rige la cotización" in disc[0]["detalle"],
+      "y el hallazgo dice cual de las dos manda")
+check(disc[0]["gravedad"] == INTERMEDIA and not disc[0]["pedir"],
+      "no se le pide nada al cliente: se corrige con ventas")
+check(r.puede_pasar_a_riesgo,
+      "el riesgo se puede evaluar; lo que no se puede es firmar con datos en conflicto")
+
+r = revisar(completo(), hoy=HOY, cobertura=COBERTURA_LLENA)
+check(not any(h["tipo"] == "discrepancia_tracker" for h in r.hallazgos),
+      "y sin tracker capturado no se inventa ninguna discrepancia")

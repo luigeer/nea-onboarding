@@ -657,6 +657,64 @@ def _ya_aceptado(exp, hallazgo):
     return False
 
 
+# El tracker de ventas y la cotización firmada describen el mismo trato y no
+# siempre coinciden. Cuando difieren manda la cotización —es el documento que el
+# cliente firmó— y la diferencia se levanta como hallazgo para resolverla con
+# ventas, no se corrige en silencio: quien capturó mal el tracker lo va a volver
+# a hacer si nadie se lo dice.
+#
+# La periodicidad es el campo donde el error más caro pasa desapercibido: una
+# línea de $50,000 semanal exige cuatro veces el flujo de la misma línea
+# mensual, y las dos se ven igual en un tablero.
+CAMPOS_TRACKER = [
+    ("linea",       "credito.solicitada.linea",       "Línea de crédito"),
+    ("plazo",       "credito.solicitada.plazo",        "Periodicidad de pago"),
+    ("mensualidad", "credito.solicitada.mensualidad",  "Costo mensual"),
+]
+
+
+def _contra_tracker(exp, r):
+    """Compara el expediente contra lo capturado en el tracker de ventas.
+
+    `exp['tracker']` es lo que se leyó del Tracker Registro de Cliente. Si no
+    está, no hay nada que comparar y la revisión no inventa un hallazgo.
+    """
+    tracker = _get(exp, "tracker", {}) or {}
+    if not tracker:
+        return
+
+    razon = _get(exp, "cliente.validado.razon_social")
+    for clave, ruta, etiqueta in CAMPOS_TRACKER:
+        del_tracker = tracker.get(clave)
+        del_exp = _get(exp, ruta)
+        if del_tracker in (None, "") or del_exp in (None, ""):
+            continue
+        if _mismo_valor(del_exp, del_tracker):
+            continue
+        r.anotar(INTERMEDIA,
+                 "%s no coincide entre la cotización y el tracker" % etiqueta,
+                 "La cotización dice %r y el tracker dice %r. Rige la cotización; "
+                 "hay que corregir el tracker con ventas."
+                 % (del_exp, del_tracker),
+                 tipo="discrepancia_tracker", bloquea=(GENERACION,), sujeto=razon)
+
+
+def _mismo_valor(a, b):
+    """Compara tolerando mayúsculas, espacios y montos escritos con formato."""
+    if isinstance(a, (int, float)) or isinstance(b, (int, float)):
+        try:
+            return abs(float(_solo_numero(a)) - float(_solo_numero(b))) < 0.01
+        except (TypeError, ValueError):
+            return False
+    return str(a).strip().lower() == str(b).strip().lower()
+
+
+def _solo_numero(v):
+    if isinstance(v, (int, float)):
+        return v
+    return str(v).replace("$", "").replace(",", "").strip()
+
+
 def revisar(exp, hoy=None, cobertura=None):
     """Corre las etapas 1 y 2 completas.
 
@@ -671,6 +729,7 @@ def revisar(exp, hoy=None, cobertura=None):
     _obligado_solidario(exp, r, hoy)
     _insumos_modelo(exp, r, cobertura)
     _facultades(exp, r)
+    _contra_tracker(exp, r)
     r.hallazgos = [h for h in r.hallazgos if not _ya_aceptado(exp, h)]
     return r
 

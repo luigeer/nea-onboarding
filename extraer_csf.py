@@ -263,6 +263,30 @@ def extraer_csf(ruta_pdf):
     if m:
         lugar = "%s, %s" % (_norm(m.group(1)), _norm(m.group(2)))
         fecha_emision = _iso_larga(m.group(3))
+
+    # El cuadro de "Lugar y Fecha de Emisión" cambia de alto según lo largo que
+    # sea el nombre del contribuyente, y cuando crece la fecha se sale del
+    # recorte y se pierde. La cadena original del sello la trae siempre, en un
+    # formato fijo que genera el SAT y no depende de la maquetación:
+    #
+    #     CadenaOriginalSello: ||2026/08/10 08:05:57|RFC|CONSTANCIA DE ...
+    #
+    # Se usa como respaldo y, si las dos existen y difieren, gana el sello: es
+    # el dato que el propio SAT firmó. Una CSF sin fecha se trata como vencida
+    # más adelante, así que perderla no es inofensivo.
+    # El espaciado de la etiqueta varía entre constancias —"CadenaOriginalSello"
+    # y "Cadena Original Sello"—, así que se ignoran los espacios de la etiqueta.
+    sello = re.search(r"Cadena\s*Original\s*Sello:\s*\|\|(\d{4})/(\d{2})/(\d{2})",
+                      texto)
+    if sello:
+        del_sello = "%s-%s-%s" % sello.groups()
+        if fecha_emision and fecha_emision != del_sello:
+            alertas.append(
+                "La fecha del encabezado (%s) no coincide con la del sello digital "
+                "(%s); se usa la del sello." % (fecha_emision, del_sello))
+        fecha_emision = del_sello
+    elif not fecha_emision:
+        alertas.append("No se pudo leer la fecha de emisión: hay que verificarla a mano.")
     vigente_hasta = _mas_meses(fecha_emision, 3)
     hoy = date.today().isoformat()
     if vigente_hasta and vigente_hasta < hoy:
