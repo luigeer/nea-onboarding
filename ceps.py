@@ -30,7 +30,11 @@ RE_FECHA = re.compile(r"^\s*(\d{1,2})\s+(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT
 RE_IMPORTES = re.compile(r"\$\s*([\d,]+\.\d{2})")
 RE_CAMPO = {
     "institucion_receptora": re.compile(r"INSTITUCIÓN RECEPTORA:\s*(.+?)\s*$"),
-    "institucion_ordenante": re.compile(r"INSTITUCIÓN ORDENANTE:\s*(.+?)\s*$"),
+    # En un depósito la etiqueta es EMISORA, no ORDENANTE. Buscar solo
+    # ORDENANTE dejaba sin banco a los 1,459 SPEI recibidos, que son justo los
+    # que contestan quién le paga a la empresa.
+    "institucion_ordenante": re.compile(
+        r"INSTITUCIÓN (?:ORDENANTE|EMISORA):\s*(.+?)\s*$"),
     "beneficiario":          re.compile(r"BENEFICIARIO:\s*(.+?)\s*$"),
     "cuenta_beneficiaria":   re.compile(r"CUENTA BENEFICIARIA:\s*([\d]+)"),
     "cuenta_ordenante":      re.compile(r"CUENTA ORDENANTE:\s*([\d]+)"),
@@ -49,23 +53,60 @@ RE_CAMPO = {
 MESES = {"ENE": 1, "FEB": 2, "MAR": 3, "ABR": 4, "MAY": 5, "JUN": 6,
          "JUL": 7, "AGO": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DIC": 12}
 
-# El texto extraído mete espacios dentro de las primeras palabras: "E N VÍO SPEI"
-# en lugar de "ENVÍO SPEI". Se normaliza antes de clasificar.
 def _limpiar(t):
-    t = re.sub(r"\bE\s*N\s*VÍO\b", "ENVÍO", t)
-    t = re.sub(r"\bR\s*E\s*CEPCIÓN\b", "RECEPCIÓN", t)
-    t = re.sub(r"\bR\s*E\s*TIRO\b", "RETIRO", t)
-    t = re.sub(r"\bC\s*O\s*MISION\b", "COMISION", t)
-    t = re.sub(r"\bT\s*R\s*ASPASO\b", "TRASPASO", t)
-    return re.sub(r"\s+", " ", t).strip()
+    """Normaliza la descripción de un movimiento.
+
+    El PDF separa con espacios las primeras letras de la descripción: escribe
+    "D E POSITO EN EFECTIVO", "E N VÍO SPEI", "C O MISION", "T R ASPASO". Es una
+    peculiaridad del maquetado, no del dato.
+
+    Se pegan las letras sueltas del arranque con la palabra que siguen, en vez de
+    listar cada término. La lista por palabra ya me falló una vez: "D E POSITO"
+    no estaba en ella y 1,516 depósitos en efectivo —$93 millones— quedaron
+    clasificados como "otro", que es exactamente donde nadie los ve.
+    """
+    t = re.sub(r"\s+", " ", t or "").strip()
+    # Máximo dos letras sueltas: el PDF siempre corta después del segundo
+    # carácter. Sin el tope, "I V A COMISION" se pegaría como "IVACOMISION" en
+    # vez de "IVA COMISION".
+    partes = t.split(" ")
+    sueltas = []
+    while (len(partes) > 1 and len(sueltas) < 2
+           and len(partes[0]) == 1 and partes[0].isalpha()):
+        sueltas.append(partes.pop(0))
+    if sueltas:
+        t = " ".join(["".join(sueltas) + partes[0]] + partes[1:])
+    return t
 
 
 def _clasificar(desc):
+    """Clasifica un movimiento por su descripción.
+
+    Los depósitos importan tanto como los envíos y llegan con etiquetas
+    distintas. Distinguirlos vale porque cada tipo dice algo diferente sobre el
+    negocio, y solo uno de ellos se puede comprobar con CEP:
+
+      spei_recibido      alguien le transfirió desde otro banco. Tiene clave de
+                         rastreo, así que SÍ se comprueba.
+      deposito_efectivo  dinero en ventanilla. No hay CEP y no hay contraparte
+                         identificable: es el tipo de ingreso que menos se puede
+                         verificar, y por eso pesa en el riesgo de efectivo.
+      tpv_adquirente     liquidación de terminal bancaria. La contraparte es el
+                         adquirente, no el cliente final; no hay CEP.
+      cheque             cobrado por cámara de compensación. Tampoco es SPEI.
+    """
     d = desc.upper()
     if "ENVÍO SPEI" in d or "ENVIO SPEI" in d:
         return "spei_enviado"
-    if "RECEPCIÓN SPEI" in d or "RECEPCION SPEI" in d or "SPEI RECIBIDO" in d:
+    if ("DEPÓSITO SPEI" in d or "DEPOSITO SPEI" in d or "RECEPCIÓN SPEI" in d
+            or "RECEPCION SPEI" in d or "SPEI RECIBIDO" in d):
         return "spei_recibido"
+    if "NEGOCIOS AFILIADOS" in d or "ADQUIRENTE" in d:
+        return "tpv_adquirente"
+    if "DEPOSITO EN EFECTIVO" in d or "DEPÓSITO EN EFECTIVO" in d:
+        return "deposito_efectivo"
+    if "CHEQUE" in d:
+        return "cheque"
     if "TRASPASO" in d:
         return "traspaso_interno"
     if "DOMICILIACION" in d or "DOMICILIACIÓN" in d:
@@ -163,3 +204,25 @@ def instrucciones(m):
         "monto": m.get("monto"),
         "beneficiario_declarado": m.get("beneficiario"),
     }
+
+
+# Los tres primeros dígitos de una CLABE identifican al banco. Solo se nombran
+# los que se pueden afirmar sin dudar; el resto se reporta como código, porque en
+# un documento de cumplimiento poner mal el nombre de un banco es peor que no
+# ponerlo.
+BANCOS_CLABE = {
+    "002": "Banamex", "012": "BBVA", "014": "Santander", "021": "HSBC",
+    "030": "BanBajío", "036": "Inbursa", "042": "Mifel", "044": "Scotiabank",
+    "058": "Banregio", "072": "Banorte", "127": "Banco Azteca",
+    "137": "BanCoppel", "143": "CIBanco", "166": "Banco del Bienestar",
+    "646": "STP",
+}
+
+
+def banco_de_clabe(cuenta):
+    """El banco al que pertenece una CLABE, por su código de institución."""
+    c = re.sub(r"\D", "", str(cuenta or ""))
+    if len(c) < 3:
+        return None
+    codigo = c[:3]
+    return BANCOS_CLABE.get(codigo, "código %s" % codigo)
