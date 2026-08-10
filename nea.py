@@ -11,6 +11,7 @@ este usa por dentro.
     python nea.py estado <FOLIO>           qué falta para poder generar
     python nea.py generar <FOLIO>          genera el paquete de contratos
     python nea.py subir <FOLIO>            sube el paquete a Drive
+    python nea.py drive                    revisa las credenciales de Drive
     python nea.py solicitud <FOLIO>        la lista de faltantes para ventas
     python nea.py perfil <FOLIO>           deriva el perfil y captura lo que falta
     python nea.py riesgo <FOLIO>           corre el modelo y guarda el score
@@ -722,6 +723,68 @@ def cmd_resumen(folio, guardar_archivo=False):
     return 0
 
 
+def cmd_drive():
+    """Revisa el estado de las credenciales de Drive y prueba la conexion.
+
+    Existe para que el diagnostico no sea leer un traceback. Cada paso dice que
+    falta y donde, en el orden en que hay que resolverlo.
+    """
+    import json as _json
+    cred = os.path.join(RAIZ, ".credenciales", "cliente_oauth.json")
+    token = os.path.join(RAIZ, ".credenciales", "token.json")
+
+    titulo("Credenciales de Drive")
+    if not os.path.exists(cred):
+        print("  1. cliente_oauth.json    FALTA")
+        print("     Va en: %s" % cred)
+        print("     Como obtenerlo: SETUP_DRIVE.md")
+        return 1
+
+    try:
+        with open(cred, encoding="utf-8") as fh:
+            datos = _json.load(fh)
+    except ValueError:
+        print("  1. cliente_oauth.json    no es un JSON valido")
+        print("     Vuelve a descargarlo de Google Cloud Console sin editarlo.")
+        return 1
+
+    # Google entrega dos formas distintas y solo una sirve aqui: la de
+    # aplicacion instalada. Si se descargo el JSON de un cliente web, el flujo
+    # de escritorio falla con un error que no explica nada.
+    tipo = "installed" if "installed" in datos else ("web" if "web" in datos else "?")
+    if tipo != "installed":
+        print("  1. cliente_oauth.json    es de tipo %r, no sirve" % tipo)
+        print("     Hay que crear el OAuth client ID como 'Desktop app'.")
+        print("     Un cliente 'Web application' no funciona con este flujo.")
+        return 1
+    print("  1. cliente_oauth.json    ok (Desktop app)")
+    print("     proyecto: %s" % datos["installed"].get("project_id", "?"))
+
+    if os.path.exists(token):
+        print("  2. token.json            ok (ya autorizado)")
+    else:
+        print("  2. token.json            falta; se crea al autorizar")
+        print("     Al continuar se abre el navegador una sola vez.")
+
+    print()
+    print("  Probando la conexion...")
+    try:
+        import drive_cliente
+        svc = drive_cliente.servicio()
+        exp = drive_cliente.carpeta_expediente(svc, "LLOSA-01")
+        print("  Conectado. Carpeta del expediente: %s" % exp["name"])
+        ids = drive_cliente.asegurar_estructura(svc, exp["id"])
+        print("  Subcarpetas: %s" % ", ".join(sorted(ids)))
+        print("\n  Ya puedes correr:  python nea.py subir LLOSA-01")
+        return 0
+    except SystemExit as e:
+        print("  %s" % e)
+        return 1
+    except Exception as e:
+        print("  No se pudo conectar: %s" % str(e)[:200])
+        return 1
+
+
 def main(argv):
     if len(argv) < 2:
         return cmd_inicio()
@@ -743,6 +806,8 @@ def main(argv):
             return cmd_solicitud(args[0])
         if orden == "perfil" and len(args) == 1:
             return cmd_perfil(args[0])
+        if orden == "drive":
+            return cmd_drive()
         if orden == "resumen" and args:
             return cmd_resumen(args[0], guardar_archivo="--guardar" in args)
         if orden in ("ayuda", "-h", "--help"):
