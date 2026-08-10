@@ -236,6 +236,33 @@ def _positivo(v):
 # ─────────────────────────────────────────────────────────────────────────────
 DIAS_RED_ACTIVA = 90
 
+# Proveedores de correo gratuito. Que el representante legal de una empresa que
+# pide línea firme con un correo de estos no es un hueco de información: es
+# información. Una empresa con dominio propio invirtió en su identidad y es
+# localizable; una que opera desde Gmail puede ser igual de sólida, pero la
+# señal es más débil y hay que decirlo.
+DOMINIOS_GRATUITOS = {
+    "gmail.com", "hotmail.com", "hotmail.es", "outlook.com", "outlook.es",
+    "live.com", "live.com.mx", "yahoo.com", "yahoo.com.mx", "icloud.com",
+    "me.com", "aol.com", "protonmail.com", "proton.me", "msn.com",
+    "prodigy.net.mx", "terra.com.mx",
+}
+
+
+def dominio_de(correo):
+    """El dominio de un correo, o None si no parece un correo."""
+    if not correo or "@" not in str(correo):
+        return None
+    return str(correo).strip().rsplit("@", 1)[1].lower().strip(" .,;")
+
+
+def es_dominio_propio(correo):
+    """True / False / None. None cuando no hay correo que examinar."""
+    d = dominio_de(correo)
+    if not d:
+        return None
+    return d not in DOMINIOS_GRATUITOS
+
 
 def nota_presencia_digital(pd, hoy=None):
     """De {sitio_web, redes:[{red, seguidores, ultima_publicacion}]} a un 0–1.
@@ -256,20 +283,69 @@ def nota_presencia_digital(pd, hoy=None):
 
     # Si el operador no capturó ni sitio ni redes ni un "no tiene" explícito,
     # no hay nada que calificar.
-    if not tiene_sitio and not redes and not pd.get("sin_presencia"):
+    # `sin_presencia` y `no_encontrado` no son lo mismo, y la diferencia vale
+    # 6% del módulo:
+    #
+    #   sin_presencia   alguien verificó que la empresa no tiene sitio ni redes,
+    #                   o la empresa misma lo dijo. Es un dato, y califica 0.
+    #   no_encontrado   una búsqueda no dio con nada. Eso no prueba que no
+    #                   exista: la búsqueda pudo fallar. Queda ausente y el
+    #                   modelo renormaliza, con la observación abierta para que
+    #                   ventas la confirme.
+    #
+    # Es el mismo criterio que en la declaración anual: un cero declarado es
+    # información, un hueco no lo es.
+    propio = pd.get("dominio_propio")
+    if propio is None:
+        propio = es_dominio_propio(pd.get("correo_dominio"))
+
+    hay_algo = tiene_sitio or redes or propio is not None or pd.get("sin_presencia")
+    if pd.get("no_encontrado") and not hay_algo:
+        return None, {"no_encontrado": True}
+    if not hay_algo:
         return None, {}
 
-    n_sitio = 0.35 if tiene_sitio else 0.0
-    n_redes = {0: 0.0, 1: 0.20, 2: 0.30}.get(len(activas), 0.40)
-    n_seg = (0.25 if seguidores >= 10000 else
-             0.18 if seguidores >= 2000 else
-             0.12 if seguidores >= 500 else
-             0.06 if seguidores >= 100 else 0.0)
+    # Cuatro componentes, cada uno con su peso, y se promedia sobre los que se
+    # conocen. Ponerle cero al dominio cuando no hay correo que examinar sería
+    # calificar la ausencia de un dato como el peor dato, que es el defecto que
+    # este proyecto lleva corrigiendo en todos lados —incluido aquí, donde lo
+    # cometí y lo atrapó una prueba—.
+    #
+    # El dominio pesa más que los seguidores porque es el dato más duro: sale
+    # del correo con el que firma el representante legal, no de una búsqueda ni
+    # de un juicio. Un correo gratuito sí califica cero: eso no es un hueco.
+    componentes = {}
 
-    desglose = {"sitio_web": n_sitio, "redes_activas": n_redes,
-                "seguidores": n_seg, "num_redes_activas": len(activas),
-                "seguidores_totales": seguidores}
-    return round(min(1.0, n_sitio + n_redes + n_seg), 4), desglose
+    if propio is not None:
+        componentes["dominio_propio"] = (0.35, 1.0 if propio else 0.0)
+
+    # Si nadie verificó las redes, no se califican. Si se verificó que no hay,
+    # sí. Para un mayorista B2B, tener dominio y sitio vivo es la presencia que
+    # importa; los seguidores de Instagram no dicen mucho de su solvencia.
+    redes_sin_verificar = pd.get("redes_no_encontradas") and not redes
+    if tiene_sitio or not pd.get("sitio_no_verificado"):
+        componentes["sitio_web"] = (0.20, 1.0 if tiene_sitio else 0.0)
+    if not redes_sin_verificar:
+        componentes["redes_activas"] = (
+            0.30, {0: 0.0, 1: 0.5, 2: 0.8}.get(len(activas), 1.0))
+        componentes["seguidores"] = (0.15, (
+            1.0 if seguidores >= 10000 else
+            0.73 if seguidores >= 2000 else
+            0.47 if seguidores >= 500 else
+            0.27 if seguidores >= 100 else 0.0))
+
+    den = sum(peso for peso, _ in componentes.values())
+    if den == 0:
+        return None, {"nada_verificado": True}
+    nota = sum(peso * n for peso, n in componentes.values()) / den
+
+    desglose = {k: round(peso * n, 4) for k, (peso, n) in componentes.items()}
+    desglose.update({"tiene_dominio_propio": propio,
+                     "num_redes_activas": len(activas),
+                     "seguidores_totales": seguidores,
+                     "redes_sin_verificar": bool(redes_sin_verificar),
+                     "peso_evaluado": round(den, 2)})
+    return round(min(1.0, nota), 4), desglose
 
 
 # ─────────────────────────────────────────────────────────────────────────────

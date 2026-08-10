@@ -215,3 +215,73 @@ if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
     sys.exit(1)
 print("Todas las pruebas pasaron.")
+
+
+# ── presencia digital: buscar y no encontrar no es lo mismo que no tener ──────
+print("Presencia digital")
+import perfil_empresa
+
+nota, _ = perfil_empresa.nota_presencia_digital({"sin_presencia": True, "redes": []})
+check(nota == 0.0,
+      "verificar que no tiene sitio ni redes es un dato y califica cero")
+
+# El dominio del correo con el que firma el representante legal: el dato mas
+# duro de este bloque, porque no depende de una busqueda ni de un juicio.
+check(perfil_empresa.es_dominio_propio("diego.ramirez@la-llosa.com") is True,
+      "un correo con dominio de la empresa cuenta como dominio propio")
+check(perfil_empresa.es_dominio_propio("diego.ramirez@gmail.com") is False,
+      "y uno de proveedor gratuito no")
+check(perfil_empresa.es_dominio_propio("") is None,
+      "sin correo no se afirma ni se niega")
+
+sin_dominio, des = perfil_empresa.nota_presencia_digital(
+    {"correo_dominio": "alguien@hotmail.com", "redes": []})
+check(sin_dominio == 0.0 and des["tiene_dominio_propio"] is False,
+      "firmar desde un correo gratuito califica cero, no ausente")
+
+con_dominio, des = perfil_empresa.nota_presencia_digital(
+    {"correo_dominio": "alguien@empresa.mx", "sitio_web": "https://empresa.mx",
+     "redes": []})
+check(con_dominio > sin_dominio,
+      "dominio propio mas sitio activo pesa mas que un correo gratuito: %.2f vs %.2f"
+      % (con_dominio, sin_dominio))
+
+nota, des = perfil_empresa.nota_presencia_digital({"no_encontrado": True, "redes": []})
+check(nota is None and des.get("no_encontrado"),
+      "pero una busqueda sin resultados deja la variable ausente, no en cero")
+
+nota, des = perfil_empresa.nota_presencia_digital({
+    "sitio_web": "https://ejemplo.mx",
+    "redes": [{"red": "Instagram", "seguidores": 3200,
+               "ultima_publicacion": "2026-08-01"},
+              {"red": "Facebook", "seguidores": 800,
+               "ultima_publicacion": "2024-01-01"}]})
+check(des["num_redes_activas"] == 1,
+      "una red sin publicar en tres meses no cuenta como activa")
+check(des["seguidores_totales"] == 4000,
+      "pero sus seguidores si suman: el publico sigue ahi")
+check(0.6 < nota <= 1.0, "sitio mas una red activa mas 4,000 seguidores: %.2f" % nota)
+
+check(perfil_empresa.nota_presencia_digital(None)[0] is None,
+      "y sin capturar nada la variable no existe")
+
+# LO IMPORTANTE: no saber el dominio no puede valer lo mismo que saber que es
+# gratuito. Este es el defecto que el proyecto lleva corrigiendo en todos lados
+# y que se colo aqui: se atrapo con esta prueba.
+sin_correo, d1 = perfil_empresa.nota_presencia_digital(
+    {"sitio_web": "https://empresa.mx", "redes": []})
+con_gratuito, d2 = perfil_empresa.nota_presencia_digital(
+    {"sitio_web": "https://empresa.mx", "correo_dominio": "x@gmail.com", "redes": []})
+check(sin_correo > con_gratuito,
+      "no saber el dominio puntua mejor que saber que es gratuito: %.2f vs %.2f"
+      % (sin_correo, con_gratuito))
+check(d1["peso_evaluado"] < d2["peso_evaluado"],
+      "y se ve en el peso evaluado: sin correo se promedia sobre menos")
+
+# Un mayorista B2B con dominio y sitio vivo, sin redes verificadas, no se
+# castiga por unas redes que nadie reviso.
+nota, des = perfil_empresa.nota_presencia_digital(
+    {"correo_dominio": "d@la-empresa.com", "sitio_web": "https://la-empresa.com",
+     "redes": [], "redes_no_encontradas": True})
+check(des["redes_sin_verificar"] and nota == 1.0,
+      "redes no verificadas salen del promedio en vez de contar como cero")
