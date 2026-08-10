@@ -285,3 +285,39 @@ nota, des = perfil_empresa.nota_presencia_digital(
      "redes": [], "redes_no_encontradas": True})
 check(des["redes_sin_verificar"] and nota == 1.0,
       "redes no verificadas salen del promedio en vez de contar como cero")
+
+# ── el CFDI del año corriente contra la declaracion desfasada ────────────────
+print("Ingresos del CFDI")
+from datetime import date as _date
+
+COMPARATIVO = [{
+    "period": "2026", "netIncome": "8502650.47", "totalIncome": "9224333.82",
+    # LO QUE NO SE DEBE USAR: profitOrLoss es ingreso cobrado menos gasto
+    # pagado. Sale enorme precisamente porque la empresa NO ha pagado.
+    "profitOrLoss": "7853073.13",
+    "receivedPaymentPending": "38799637.61",
+    "totalExpenses": "40262175.09", "totalExpensesCancelled": "18701574.58",
+    "expensesDueOverTime": "0.9731", "paidExpensesDueOverTime": "0.0096",
+    "incomeDueUponReceipt": "0.9218", "daysPayableOutstanding": "9.61",
+}, {"period": "Acumulado", "netIncome": "8502650.47"}]
+
+cfdi_sb = FakeSB({"syntage_datos": [
+    {"folio": "T-01", "recurso": "metrics/invoicing-annual-comparison",
+     "payload": COMPARATIVO}]})
+
+ing, meta = insumos_riesgo.cfdi_del_anio("T-01", sb=cfdi_sb, hoy=_date(2026, 8, 10))
+check(ing is not None and ing > 8502650.47,
+      "el acumulado a medio año se anualiza: %s" % format(ing or 0, ",.0f"))
+check(abs(meta["meses_transcurridos"] - 7.3) < 0.2,
+      "y se registra sobre cuantos meses se anualizo")
+check(meta["cuentas_por_pagar"] == 38799637.61,
+      "las cuentas por pagar viajan en los metadatos aunque el modelo no las mire")
+
+# La fila "Acumulado" no es un ejercicio y no debe confundirse con uno.
+ing_2025, _ = insumos_riesgo.cfdi_del_anio("T-01", sb=cfdi_sb, hoy=_date(2025, 8, 10))
+check(ing_2025 is None, "y un año sin fila propia no produce ingresos inventados")
+
+# LO IMPORTANTE: solo el ingreso sale del CFDI. La utilidad, no.
+check("utilidad_operacion" not in meta and "profitOrLoss" not in meta,
+      "profitOrLoss NO se propaga: es ingreso cobrado menos gasto pagado, y en una "
+      "empresa que compra a credito y no paga sale enorme porque debe")

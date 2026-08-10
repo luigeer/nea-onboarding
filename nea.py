@@ -503,6 +503,15 @@ def cmd_riesgo(folio, forzar=False):
     print("  Buró:               %s (%s)" % (proc["buro"] or "—",
                                              proc["buro_resultado"] or "sin consulta"))
     print("  Ejercicio fiscal:   %s" % (proc["ejercicio_fiscal"] or "ninguno con datos"))
+    if proc.get("fuente_ingresos") == "cfdi_anio_corriente":
+        c = proc.get("cfdi") or {}
+        print("  Ingresos:           del CFDI de %s, no de la declaración"
+              % c.get("ejercicio"))
+        print("                      %s acumulados en %s meses"
+              % (pesos(c.get("ingresos_netos_acumulados")), c.get("meses_transcurridos")))
+        if c.get("cuentas_por_pagar"):
+            print("                      OJO: %s de cuentas por pagar pendientes"
+                  % pesos(c["cuentas_por_pagar"]))
     print("  Estados de cuenta:  %d periodos en %d cuenta(s)"
           % (proc["periodos_bancarios"], proc["cuentas_bancarias"]))
     print("  Perfil de empresa:  %s" % ("capturado" if (cob or {}).get("perfil_completo")

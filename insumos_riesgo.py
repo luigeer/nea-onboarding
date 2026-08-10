@@ -152,6 +152,78 @@ def cuentas(folio, sb=None):
             for ps in agrupadas.values()]
 
 
+# Cuánto más grande tiene que ser la facturación del año corriente frente al
+# último ejercicio declarado para preferirla. Por debajo de esto, la declaración
+# —que está auditada por el propio contribuyente ante el SAT— sigue siendo mejor
+# fuente que un CFDI acumulado a medio año.
+FACTOR_CFDI = 1.5
+
+
+def cfdi_del_anio(folio, sb=None, hoy=None):
+    """Los ingresos facturados del año en curso, anualizados.
+
+    Devuelve (ingresos_anualizados, metadatos) o (None, {}).
+
+    **Solo el ingreso.** El comparativo anual de Syntage trae un campo
+    `profitOrLoss` que parece utilidad y no lo es: es el ingreso COBRADO menos
+    el gasto PAGADO. En una empresa que compra a crédito y no ha pagado, ese
+    número sale enorme justamente porque debe. En La Llosa da $7.85M de
+    "utilidad" mientras arrastra $38.8M de cuentas por pagar. Pasárselo al
+    modelo como utilidad de operación sería premiarla por no pagar.
+
+    El CFDI dice cuánto vendió, no cuánto ganó. Lo demás —utilidad, balance,
+    liquidez— se queda en la declaración anual, que sí lo dice.
+    """
+    import db
+    sb = sb or db.cliente()
+    hoy = hoy or date.today()
+
+    filas = sb.table("syntage_datos").select("payload").eq("folio", folio) \
+              .eq("recurso", "metrics/invoicing-annual-comparison").execute().data
+    if not filas:
+        return None, {}
+
+    fila = next((p for p in (filas[0]["payload"] or [])
+                 if str(p.get("period")) == str(hoy.year)), None)
+    if not fila:
+        return None, {}
+
+    try:
+        neto = float(fila.get("netIncome"))
+    except (TypeError, ValueError):
+        return None, {}
+    if neto <= 0:
+        return None, {}
+
+    # Anualizar por meses de calendario transcurridos. Es una estimación y se
+    # dice: la serie mensual de Syntage viene colapsada en el mes de extracción,
+    # así que no se sabe en qué mes arrancó la facturación. Si arrancó a media
+    # marcha, esto la subestima; si arrancó en enero, es exacto.
+    meses = hoy.month - 1 + hoy.day / 30.0
+    anualizado = neto * 12.0 / meses if meses >= 1 else neto
+
+    return anualizado, {
+        "ejercicio": hoy.year,
+        "ingresos_netos_acumulados": neto,
+        "ingresos_brutos": _flotante(fila.get("totalIncome")),
+        "meses_transcurridos": round(meses, 1),
+        "cuentas_por_pagar": _flotante(fila.get("receivedPaymentPending")),
+        "compras_canceladas": _flotante(fila.get("totalExpensesCancelled")),
+        "compras_totales": _flotante(fila.get("totalExpenses")),
+        "pct_compras_a_credito": _flotante(fila.get("expensesDueOverTime")),
+        "pct_credito_pagado": _flotante(fila.get("paidExpensesDueOverTime")),
+        "pct_ventas_cobradas_de_inmediato": _flotante(fila.get("incomeDueUponReceipt")),
+        "dias_para_pagar": _flotante(fila.get("daysPayableOutstanding")),
+    }
+
+
+def _flotante(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def declaracion(folio, sb=None):
     """El ejercicio declarado más reciente.
 
@@ -198,6 +270,19 @@ def reunir(folio, sb=None):
     cs = cuentas(folio, sb)
     b = buro(folio, sb=sb)
 
+    # Un ejercicio declarado puede describir una empresa que ya no existe. La
+    # Llosa declaró 2023, 2024 y 2025 en ceros y arrancó a facturar en 2026: el
+    # modelo estaba calificando el 27.5% del score con la foto de una empresa
+    # dormida. Cuando la facturación del año corriente supera materialmente al
+    # último ejercicio declarado, el ingreso sale del CFDI y se deja constancia.
+    cfdi, meta = cfdi_del_anio(folio, sb)
+    fuente_ingresos = "declaracion_anual"
+    if cfdi is not None:
+        declarado = d.get("ingresos_totales") or 0.0
+        if cfdi > declarado * FACTOR_CFDI or declarado == 0:
+            d = dict(d, ingresos_totales=cfdi)
+            fuente_ingresos = "cfdi_anio_corriente"
+
     return {
         "expediente": exp,
         "perfil": perfil(exp, folio, sb),
@@ -206,6 +291,8 @@ def reunir(folio, sb=None):
         "cuentas": cs,
         "procedencia": {
             "ejercicio_fiscal": ejercicio,
+            "fuente_ingresos": fuente_ingresos,
+            "cfdi": meta or None,
             "periodos_bancarios": sum(len(c) for c in cs),
             "cuentas_bancarias": len(cs),
             "buro": b.get("folio_consulta"),
