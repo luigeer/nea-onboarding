@@ -767,7 +767,14 @@ def cmd_drive():
         print("     Al continuar se abre el navegador una sola vez.")
 
     print()
+    if not os.path.exists(token):
+        print("  El siguiente paso abre el navegador y se queda esperando tu")
+        print("  autorizacion. Si estas viendo esto desde el chat, corre el")
+        print("  comando tu mismo en una terminal: yo no puedo completar el")
+        print("  dialogo de Google.")
+        print()
     print("  Probando la conexion...")
+    sys.stdout.flush()
     try:
         import drive_cliente
         svc = drive_cliente.servicio()
