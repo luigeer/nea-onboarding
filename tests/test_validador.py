@@ -400,3 +400,30 @@ sin_nombre = listo_para_generar(observaciones=[{
     "descripcion": "El 100% de los depositos viene del obligado solidario"}])
 check(any("sin nombre de quien lo asume" in f for f in compuertas_generacion(sin_nombre)),
       "pero no sin el nombre de quien lo asume: alguien tiene que firmarlo")
+
+# ── la periodicidad de la domiciliacion sale del expediente ──────────────────
+print("Domiciliacion")
+from adaptadores import ADAPTADORES
+
+e = listo_para_generar()
+e["flags"]["domiciliacion"] = True
+e["cuentas_bancarias"][0]["clabe"] = "030180900044992708"
+e["credito"]["solicitada"]["plazo"] = "Semanal"
+e["credito"]["autorizada"]["plazo"] = "Semanal"
+d = ADAPTADORES["domiciliacion"](e)
+check(d["periodicidad"] == "Semanal",
+      "la periodicidad sale del expediente, no escrita a mano en el codigo")
+
+# La autorizada manda: es la que rige el cobro.
+e["credito"]["solicitada"]["plazo"] = "Mensual"
+d = ADAPTADORES["domiciliacion"](e)
+check(d["periodicidad"] == "Semanal",
+      "y cuando difieren manda la autorizada, no la solicitada")
+
+# LO IMPORTANTE: si el contrato dice semanal, la autorizacion de domiciliacion
+# no puede decir mensual. Son dos documentos firmados el mismo dia.
+del e["credito"]["autorizada"]["plazo"]
+e["credito"]["solicitada"]["plazo"] = "Quincenal"
+d = ADAPTADORES["domiciliacion"](e)
+check(d["periodicidad"] == "Quincenal",
+      "sin autorizada se cae a la solicitada, nunca a un valor fijo")

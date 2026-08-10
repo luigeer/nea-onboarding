@@ -318,7 +318,13 @@ def para_domiciliacion(exp):
         "banco": cta.get("banco"),
         "clabe": cta.get("clabe"),
         "fecha": _fecha_larga(_get(exp, "fechas.operacion")),
-        "periodicidad": "Mensual",
+        # La periodicidad venía escrita a mano como "Mensual", sin mirar el
+        # expediente. En una línea semanal eso hace que el cliente autorice
+        # cargos mensuales mientras el contrato dice semanal: dos documentos
+        # firmados el mismo día que se contradicen. Manda la autorizada, porque
+        # es la que rige; la solicitada es el respaldo.
+        "periodicidad": (_get(exp, "credito.autorizada.plazo")
+                         or _get(exp, "credito.solicitada.plazo")),
         "opcion_cargo": _get(exp, "domiciliacion_opcion_cargo") or "saldo_total",
     }
 
