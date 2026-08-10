@@ -14,6 +14,7 @@ este usa por dentro.
     python nea.py solicitud <FOLIO>        la lista de faltantes para ventas
     python nea.py perfil <FOLIO>           deriva el perfil y captura lo que falta
     python nea.py riesgo <FOLIO>           corre el modelo y guarda el score
+    python nea.py resumen <FOLIO>          el resumen ejecutivo para comité
 
 Los expedientes se guardan en la carpeta `expedientes/` de tu computadora. Si
 configuraste Supabase (ver SETUP_SUPABASE.md), además se sincronizan solos a la
@@ -477,6 +478,14 @@ def cmd_riesgo(folio, forzar=False):
     exp = ins["expediente"]
     rev = validador.revisar(exp, cobertura=cob)
 
+    # Las observaciones que el validador escribio y ya dejaron de ser ciertas se
+    # cierran aqui. Si no, solo crecen: cada corrida vuelca los faltantes del
+    # momento y ninguna se cierra cuando el documento llega.
+    cerradas = validador.reconciliar(exp, rev)
+    if cerradas:
+        sb.table("expedientes").update({"datos": exp}).eq("folio", folio).execute()
+        print("  (%d observación(es) se cerraron: el hallazgo ya no aparece)" % cerradas)
+
     razon = exp["cliente"]["validado"].get("razon_social") or folio
     titulo("%s — %s" % (razon, folio))
 
@@ -682,6 +691,25 @@ def _capturar_presencia():
     return pd
 
 
+def cmd_resumen(folio, guardar_archivo=False):
+    """El resumen ejecutivo: lo que el score no dice."""
+    import resumen_ejecutivo
+    if not hay_supabase():
+        print("Este comando necesita Supabase.")
+        return 1
+    d = resumen_ejecutivo.reunir(folio)
+    t = resumen_ejecutivo.texto(d)
+    print()
+    print(t)
+    if guardar_archivo:
+        destino = os.path.join(RAIZ, "out", "%s_resumen_ejecutivo.txt" % folio)
+        os.makedirs(os.path.dirname(destino), exist_ok=True)
+        with open(destino, "w", encoding="utf-8") as fh:
+            fh.write(t)
+        print("\n  Guardado en %s" % destino)
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         return cmd_inicio()
@@ -703,6 +731,8 @@ def main(argv):
             return cmd_solicitud(args[0])
         if orden == "perfil" and len(args) == 1:
             return cmd_perfil(args[0])
+        if orden == "resumen" and args:
+            return cmd_resumen(args[0], guardar_archivo="--guardar" in args)
         if orden in ("ayuda", "-h", "--help"):
             print(__doc__)
             return 0

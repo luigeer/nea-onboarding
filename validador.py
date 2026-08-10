@@ -894,6 +894,39 @@ def a_observaciones(exp, r):
         exp["observaciones"].append({
             "tipo": h["tipo"], "descripcion": desc, "severidad": h["gravedad"],
             "estado": "abierta", "fecha": h["fecha"],
+            # Quién la escribió decide quién la puede cerrar. Ver `reconciliar`.
+            "origen": "validador", "sujeto": h.get("sujeto"),
         })
         nuevas += 1
     return nuevas
+
+
+def reconciliar(exp, r):
+    """Cierra las observaciones del validador que ya dejaron de ser ciertas.
+
+    Sin esto las observaciones solo crecen: cada corrida vuelca los faltantes
+    del momento y ninguna se cierra cuando el documento llega. El expediente de
+    La Llosa acumuló pidiendo la autorización de buró que ya estaba, el estado
+    de cuenta que ya había llegado y el perfil que ya se había capturado. Un
+    resumen ejecutivo con basura adentro deja de leerse.
+
+    **Solo se cierran las que escribió el validador.** Las observaciones
+    capturadas a mano —que el 100% de los depósitos viene del garante, que la
+    cláusula no dice "solidariamente"— son juicio humano y no las puede cerrar
+    una corrida: nadie las va a volver a levantar si desaparecen.
+
+    Devuelve cuántas cerró.
+    """
+    vigentes = {"%s — %s" % (h["asunto"], h["detalle"]) for h in r.hallazgos}
+    hoy = date.today().isoformat()
+    cerradas = 0
+    for o in _get(exp, "observaciones", []):
+        if o.get("estado") != "abierta" or o.get("origen") != "validador":
+            continue
+        if o.get("descripcion") in vigentes:
+            continue
+        o["estado"] = "resuelta"
+        o["resuelta_el"] = hoy
+        o["resuelta_por"] = "reconciliación automática: el hallazgo ya no aparece"
+        cerradas += 1
+    return cerradas

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from schema_expediente import expediente_vacio
 from validador import (revisar, solicitud_para_ventas, solicitud_breve, reporte_interno,
-                       a_observaciones, ALTA, INTERMEDIA, BAJA, RIESGO, GENERACION)
+                       a_observaciones, reconciliar, ALTA, INTERMEDIA, BAJA, RIESGO, GENERACION)
 
 HOY = date(2026, 8, 7)
 fallas = []
@@ -329,3 +329,35 @@ check(r.puede_pasar_a_riesgo,
 r = revisar(completo(), hoy=HOY, cobertura=COBERTURA_LLENA)
 check(not any(h["tipo"] == "discrepancia_tracker" for h in r.hallazgos),
       "y sin tracker capturado no se inventa ninguna discrepancia")
+
+# ── reconciliacion: lo que ya no es cierto se cierra ─────────────────────────
+print("Reconciliacion de observaciones")
+e = completo()
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "identificacion_rep"]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+a_observaciones(e, r)
+abiertas = [o for o in e["observaciones"] if o.get("estado") == "abierta"]
+check(abiertas and all(o.get("origen") == "validador" for o in abiertas),
+      "los hallazgos volcados quedan marcados como del validador")
+
+# Llega la identificacion: el hallazgo desaparece y la observacion debe cerrarse.
+e["documentos"].append({"tipo": "identificacion_rep", "vigente_hasta": "2031-12-31",
+                        "legible": True})
+r2 = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+n = reconciliar(e, r2)
+check(n > 0, "cuando el documento llega, la observacion se cierra sola")
+check(all(o.get("estado") != "abierta" or "Identificación" not in (o.get("descripcion") or "")
+          for o in e["observaciones"]),
+      "y deja de aparecer entre las abiertas")
+cerrada = [o for o in e["observaciones"] if o.get("estado") == "resuelta"][0]
+check(cerrada.get("resuelta_por"),
+      "con motivo escrito: un cierre sin motivo es peor que dejarla abierta")
+
+# LO IMPORTANTE: una observacion humana no la cierra una corrida.
+e["observaciones"].append({
+    "tipo": "flujo_operativo", "estado": "abierta", "severidad": ALTA,
+    "descripcion": "El 100% de los depositos viene del obligado solidario"})
+n = reconciliar(e, revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA))
+check(any(o.get("estado") == "abierta" and o.get("tipo") == "flujo_operativo"
+          for o in e["observaciones"]),
+      "el juicio humano sobrevive a la reconciliacion: nadie lo va a volver a levantar")
