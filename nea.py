@@ -427,9 +427,7 @@ def cmd_subir(folio):
     # El analisis va aparte de los documentos de firma: son dos cosas distintas
     # y en una revision de cumplimiento se buscan en lugares distintos.
     import glob
-    analisis = sorted(glob.glob(os.path.join(RAIZ, "out", "%s_*.txt" % folio))
-                      + glob.glob(os.path.join(RAIZ, "out", "%s_*.txt"
-                                               % folio.split("-")[0])))
+    analisis = sorted(glob.glob(os.path.join(RAIZ, "out", "%s_*.txt" % folio)))
     if analisis:
         for f in drive_cliente.subir_analisis(svc, folio, analisis):
             print("  2 Analisis interno   %s" % f["name"])
