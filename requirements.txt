@@ -9,3 +9,4 @@ supabase>=2.0
 # Google Drive (opcional)
 google-api-python-client
 google-auth-oauthlib
+streamlit>=1.40

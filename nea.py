@@ -6,6 +6,7 @@ Esto es lo único que necesitas correr. Los demás archivos son las piezas que
 este usa por dentro.
 
     python nea.py                          qué hay y qué sigue
+    python nea.py front                    el tablero en el navegador
     python nea.py tablero                  todos los onboardings y qué los detiene
     python nea.py historial <FOLIO>        por dónde pasó y cuánto tardó
     python nea.py nuevo <csf.pdf>          abre un expediente leyendo la CSF
@@ -942,6 +943,31 @@ def cmd_historial(folio):
     return 0
 
 
+def cmd_front():
+    """Abre el tablero en el navegador.
+
+    Existe para que operar no requiera saber la terminal mas alla de este
+    comando: Streamlit levanta un servidor local y abre el navegador solo.
+    """
+    import subprocess
+    ruta = os.path.join(RAIZ, "front.py")
+    if not os.path.exists(ruta):
+        print("No encuentro front.py")
+        return 1
+    try:
+        import streamlit                                    # noqa: F401
+    except ImportError:
+        print("Falta Streamlit. Se instala una sola vez con:")
+        print("    python -m pip install streamlit")
+        return 1
+    titulo("Abriendo el tablero")
+    print("  Se abre en el navegador. Para cerrarlo, Ctrl+C aqui.")
+    sys.stdout.flush()
+    return subprocess.call([sys.executable, "-m", "streamlit", "run", ruta,
+                            "--server.headless=false",
+                            "--browser.gatherUsageStats=false"], cwd=RAIZ)
+
+
 def main(argv):
     if len(argv) < 2:
         return cmd_inicio()
@@ -963,6 +989,8 @@ def main(argv):
             return cmd_solicitud(args[0])
         if orden == "perfil" and len(args) == 1:
             return cmd_perfil(args[0])
+        if orden in ("front", "tablero-web"):
+            return cmd_front()
         if orden == "drive":
             return cmd_drive()
         if orden in ("tablero", "tab"):

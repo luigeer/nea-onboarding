@@ -4,7 +4,22 @@ Todo pasa por `python nea.py`, desde una terminal en la carpeta del proyecto.
 
 ## Dónde ves el estatus
 
-Un solo lugar:
+En el navegador:
+
+```bash
+python nea.py front
+```
+
+Se abre solo. Del lado izquierdo eliges el tablero o un cliente; en el cliente
+hay siete pestañas: score con el desglose por módulo y por variable, perfil,
+observaciones, banco y fiscal, documentos, historial y el resumen ejecutivo. Para
+cerrarlo, Ctrl+C en la terminal.
+
+**El front no autoriza.** Se ve todo y no se aprueba nada, a propósito: autorizar
+exige una justificación escrita por cada riesgo que se asume y el nombre de quien
+la firma, y un botón convierte eso en un clic el primer día que haya prisa.
+
+Si prefieres la terminal, lo mismo sin navegador:
 
 ```bash
 python nea.py
