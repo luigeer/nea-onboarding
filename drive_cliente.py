@@ -250,15 +250,31 @@ def subir_paquete(svc, folio, dir_local):
 
 
 def superar(svc, folio, file_id, ids=None):
-    """Mueve un documento a '0 Superados'. No se borra nada: trazabilidad."""
+    """Mueve un documento a '0 Superados', fechándolo. No se borra nada.
+
+    El nombre se prefija con la fecha en que se superó. Sin eso, dos versiones
+    del mismo documento quedaban con el mismo nombre en la misma carpeta y no
+    había forma de saber cuál era cuál: un archivo de versiones donde no se
+    distinguen las versiones no sirve para lo único que existe, que es poder
+    contestar qué decía el documento que se firmó.
+    """
     if ids is None:
         exp = carpeta_expediente(svc, folio)
         ids = asegurar_estructura(svc, exp["id"])
     meta = svc.files().get(fileId=file_id, fields="parents, name",
                            supportsAllDrives=True).execute()
+
+    from datetime import datetime
+    nombre = meta.get("name") or "documento"
+    marca = datetime.now().strftime("%Y-%m-%d_%H%M")
+    # Se pone al frente para que ordenen cronológicamente en el listado.
+    if not nombre.startswith("20"):
+        nombre = "%s_%s" % (marca, nombre)
+
     return svc.files().update(
         fileId=file_id, addParents=ids["0"],
         removeParents=",".join(meta.get("parents", [])),
+        body={"name": nombre},
         supportsAllDrives=True).execute()
 
 
