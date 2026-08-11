@@ -173,11 +173,15 @@ check("identification" not in nea and "check" not in nea,
 import inspect
 import weetrust as _wt
 
-fuente_borrador = inspect.getsource(_wt.subir_borrador)
-check("signatory" not in fuente_borrador,
-      "subir_borrador no toca /documents/signatory: no puede sacar de borrador")
-check("disableMailing" not in fuente_borrador,
-      "ni menciona disableMailing: ese camino no envia aunque alguien se equivoque")
+# El docstring de subir_borrador SI menciona signatory y disableMailing: explica
+# por que no los usa. Se revisa el cuerpo, no la documentacion, o la prueba
+# castiga justo el comentario que hace falta.
+_fuente = inspect.getsource(_wt.subir_borrador)
+_cuerpo = _fuente.split('"""')[2] if _fuente.count('"""') >= 2 else _fuente
+check("signatory" not in _cuerpo,
+      "subir_borrador no llama a /documents/signatory: no puede sacar de borrador")
+check("disableMailing" not in _cuerpo,
+      "ni usa disableMailing: ese camino no envia aunque alguien se equivoque")
 
 try:
     _wt.enviar_a_firma("x", [{"name": "A", "emailID": "a@b.c"}], "t", "m")
