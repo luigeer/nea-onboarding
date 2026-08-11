@@ -101,17 +101,48 @@ def token():
     return acceso
 
 
-def _pedir(metodo, ruta, cuerpo=None, headers=None, token_acceso=None):
-    cabeceras = {"Content-Type": "application/json", "Accept": "application/json"}
+def _pedir(metodo, ruta, cuerpo=None, headers=None, token_acceso=None,
+           archivo=None, espera=180):
+    """Una llamada a la API. `archivo` es (nombre, bytes) y va como multipart.
+
+    La documentación dice que el archivo puede ir "como cadena base64 o multipart
+    dentro de la estructura JSON", que son dos cosas distintas. Con base64 dentro
+    del JSON la petición se cuelga: 1.3 MB de texto y el servidor nunca contesta.
+    Multipart sí responde, y es lo que decía la especificación original.
+
+    La espera es de tres minutos porque subir un contrato de 24 páginas no es
+    instantáneo y un timeout corto deja la duda de si el documento se creó o no
+    —que es peor que esperar—.
+    """
+    cabeceras = {"Accept": "application/json"}
     if token_acceso:
         cabeceras["token"] = token_acceso
     cabeceras.update(headers or {})
 
-    datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
+    if archivo is not None:
+        nombre, contenido = archivo
+        limite = "----NeaOnboarding%d" % len(contenido)
+        partes = []
+        for clave, valor in (cuerpo or {}).items():
+            partes.append(
+                ("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n"
+                 % (limite, clave, valor)).encode("utf-8"))
+        partes.append(
+            ("--%s\r\nContent-Disposition: form-data; name=\"document\"; "
+             "filename=\"%s\"\r\nContent-Type: application/pdf\r\n\r\n"
+             % (limite, nombre)).encode("utf-8"))
+        partes.append(contenido)
+        partes.append(("\r\n--%s--\r\n" % limite).encode("utf-8"))
+        datos = b"".join(partes)
+        cabeceras["Content-Type"] = "multipart/form-data; boundary=%s" % limite
+    else:
+        cabeceras["Content-Type"] = "application/json"
+        datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
+
     pet = urllib.request.Request(_base() + ruta, data=datos, headers=cabeceras,
                                  method=metodo)
     try:
-        with urllib.request.urlopen(pet, timeout=60) as r:
+        with urllib.request.urlopen(pet, timeout=espera) as r:
             texto = r.read().decode("utf-8")
             return json.loads(texto) if texto else {}
     except urllib.error.HTTPError as e:
@@ -133,8 +164,16 @@ def paginas_de_corte(plan_firma):
             if d.get("pagina_inicial")]
 
 
-def firmantes_de(division, exp=None):
-    """Los `signatory` de una división, con su nivel de verificación."""
+def firmantes_de(division, exp=None, redirigir_a=None):
+    """Los `signatory` de una división, con su nivel de verificación.
+
+    `redirigir_a` manda TODOS los correos a una sola dirección. Es para probar
+    con un documento real sin arriesgar que le llegue algo a un cliente: aunque
+    `disableMailing` evita el envío, si esa bandera no se comportara como está
+    documentada, el correo llega a quien prueba y no al cliente. Es explícito a
+    propósito —hay que pasarlo— porque un default que redirige correos es un
+    default que algún día manda un contrato al lugar equivocado.
+    """
     from schema_expediente import _get
 
     fuera = []
@@ -142,82 +181,104 @@ def firmantes_de(division, exp=None):
         correo = f.get("correo")
         if not correo and exp is not None and "cliente" in (f.get("roles") or []):
             correo = _get(exp, "representante_legal.propuesto.correo")
+        if redirigir_a:
+            correo = _con_sufijo(redirigir_a, f["nombre"])
         s = {"name": f["nombre"], "emailID": correo}
         s.update(NIVELES.get(f["nivel"], {}))
         fuera.append(s)
     return fuera
 
 
-def subir_borrador(plan_firma, ruta_pdf, exp=None, asunto=None, mensaje=None):
-    """Sube el PDF unido, lo divide y asigna firmantes. **Sin enviar.**
+def _con_sufijo(correo, nombre):
+    """`luis@getnea.com` + "DIEGO RAMIREZ" -> `luis+diego@getnea.com`.
 
-    Devuelve lo que responde WeeTrust en cada paso, para poder verificar contra
-    la plataforma. `disableMailing` va en `True` y no es parametrizable: si algún
-    día hace falta enviar desde aquí, que sea un cambio de código explícito y
-    revisado, no una bandera que alguien pasa por error.
+    WeeTrust rechaza el documento con "Some emails are repeated" si dos firmantes
+    comparten correo, así que redirigir todo a una sola dirección no funciona. El
+    sufijo después del `+` lo ignora la entrega —el correo llega igual a la misma
+    bandeja— y a la API le basta para verlos como distintos.
     """
-    import base64
+    usuario, _, dominio = correo.partition("@")
+    if not dominio:
+        return correo
+    slug = "".join(c for c in nombre.split()[0].lower() if c.isalnum()) or "firmante"
+    return "%s+%s@%s" % (usuario.split("+")[0], slug, dominio)
 
+
+def subir_borrador(plan_firma, ruta_pdf, exp=None, asunto=None, mensaje=None,
+                   redirigir_a=None):
+    """Sube el PDF unido y lo divide. **Nada más.** Queda en DRAFT.
+
+    Aquí NO se asignan firmantes, y eso se descubrió probando contra la API:
+
+    **`PUT /documents/signatory` saca el documento de DRAFT y lo pasa a PENDING**,
+    y además genera de inmediato las URL de firma —`signing.url`, con vigencia de
+    30 días— para cada firmante. `disableMailing: true` evita los correos, y se
+    verificó que los evita (`emailTracking` vacío), pero los enlaces quedan vivos:
+    cualquiera que los tenga puede firmar. Eso no es un borrador.
+
+    **Y la configuración de verificación no persiste.** Se mandó `identification:
+    "face"` con `check: true` y el firmante quedó guardado sin esos campos, con
+    `identitySessionId` vacío. O sea que automatizarla no solo saca el documento
+    de borrador: tampoco logra lo que se quería.
+
+    Así que la integración hace lo que sí aporta y es seguro —subir el archivo
+    unido con los cortes en las páginas correctas, que es la parte que se equivoca
+    a mano— y el resto se configura en la plataforma, donde además se ve.
+    """
     acceso = token()
     usuario, _ = _config()
 
     with open(ruta_pdf, "rb") as fh:
-        contenido = base64.b64encode(fh.read()).decode("ascii")
+        contenido = fh.read()
 
     cortes = paginas_de_corte(plan_firma)
     headers = {"user-id": usuario}
     if cortes:
         headers["splitPage"] = ",".join(str(p) for p in cortes)
 
-    subida = _pedir("POST", "/documents", cuerpo={"document": contenido},
-                    headers=headers, token_acceso=acceso)
+    subida = _pedir("POST", "/documents", headers=headers, token_acceso=acceso,
+                    archivo=(os.path.basename(ruta_pdf), contenido))
 
-    # Con `splitPage`, WeeTrust crea un documento por división. Se emparejan en
-    # orden; si el número no coincide se detiene en vez de asignar firmantes a
-    # la división equivocada, que sería peor que no asignarlos.
+    d = subida.get("responseData") or {}
     ids = _ids_de(subida)
+    aviso = None
     if len(ids) != len(plan_firma["divisiones"]):
-        raise ErrorWeeTrust(
-            "WeeTrust devolvió %d documento(s) y el plan tiene %d división(es). "
-            "No se asignan firmantes: hay que revisar el corte a mano.\n%s"
-            % (len(ids), len(plan_firma["divisiones"]), json.dumps(subida)[:400]))
+        # No se aborta: el documento ya está subido y ya vive en la plataforma.
+        # Avisar sirve; fingir que no pasó, no.
+        aviso = ("WeeTrust reporta %d documento(s) y el plan tiene %d división(es). "
+                 "Hay que revisar el corte en la plataforma."
+                 % (len(ids), len(plan_firma["divisiones"])))
 
-    resultados = [{"paso": "documents", "respuesta": subida}]
-    for doc_id, division in zip(ids, plan_firma["divisiones"]):
-        cuerpo = {
-            "documentID": doc_id,
-            "signatory": firmantes_de(division, exp),
-            "title": asunto or firma.ASUNTO,
-            "message": mensaje or "",
-            # NO SE TOCA. Ver el encabezado del módulo.
-            "disableMailing": True,
-        }
-        resultados.append({
-            "paso": "signatory", "division": division["division"],
-            "documentID": doc_id,
-            "respuesta": _pedir("PUT", "/documents/signatory", cuerpo=cuerpo,
-                                headers={"user-id": usuario}, token_acceso=acceso),
-        })
-    return resultados
+    return {
+        "documentID": d.get("documentID"),
+        "status": d.get("status"),
+        "divisiones": ids,
+        "url_archivo": (d.get("documentFileObj") or {}).get("url"),
+        "aviso": aviso,
+        # Lo que hay que capturar en la plataforma, para no deducirlo ahí.
+        "firmantes_sugeridos": [
+            {"division": div["division"],
+             "paginas": "%s-%s" % (div.get("pagina_inicial"), div.get("pagina_final")),
+             "firmantes": firmantes_de(div, exp, redirigir_a)}
+            for div in plan_firma["divisiones"]],
+    }
 
 
 def _ids_de(respuesta):
-    """Saca los documentID de la respuesta, tolerando varias formas.
+    """Los documentID de una subida, en el orden de las divisiones.
 
-    WeeTrust no documenta la forma exacta cuando se usa `splitPage`, así que se
-    prueban las que aparecen en la referencia y, si ninguna calza, se devuelve
-    vacío para que el llamador se detenga con la respuesta cruda a la vista.
+    Verificado contra la API: `POST /documents` con `splitPage` devuelve el
+    documento **de la última división** en `responseData.documentID`, y las
+    anteriores en `responseData.splitChildDocumentId`, separadas por comas. Así
+    que el orden correcto es los hijos primero y el devuelto al final.
+
+    Los hijos NO se pueden consultar mientras el documento está en DRAFT: `GET
+    /documents/{id}` responde "Document not found" y tampoco aparecen en el
+    listado. Se materializan cuando el documento sale de borrador. Por eso los
+    firmantes se asignan al documento padre y no división por división.
     """
-    if isinstance(respuesta, dict):
-        for clave in ("documentIDs", "documentsID", "documents", "data"):
-            v = respuesta.get(clave)
-            if isinstance(v, list) and v:
-                return [x.get("documentID") or x.get("_id") or x
-                        if isinstance(x, dict) else x for x in v]
-        uno = respuesta.get("documentID") or respuesta.get("_id")
-        if uno:
-            return [uno]
-    if isinstance(respuesta, list):
-        return [x.get("documentID") or x.get("_id") for x in respuesta
-                if isinstance(x, dict)]
-    return []
+    d = respuesta.get("responseData") if isinstance(respuesta, dict) else None
+    d = d if isinstance(d, dict) else (respuesta if isinstance(respuesta, dict) else {})
+    padre = d.get("documentID") or d.get("_id")
+    hijos = [x for x in (d.get("splitChildDocumentId") or "").split(",") if x]
+    return hijos + ([padre] if padre else [])

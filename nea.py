@@ -1000,7 +1000,8 @@ def cmd_front():
                             "--browser.gatherUsageStats=false"], cwd=RAIZ)
 
 
-def cmd_firma(folio, guardar_archivo=False):
+def cmd_firma(folio, guardar_archivo=False, subir_a_weetrust=False,
+              redirigir_a=None):
     """Prepara el paquete para WeeTrust: PDF unido, divisiones y correo.
 
     NO manda nada a firma. Deja el archivo listo y el plan escrito para que una
@@ -1026,6 +1027,42 @@ def cmd_firma(folio, guardar_archivo=False):
     titulo("Mensaje del correo")
     print()
     print(firma.mensaje(exp))
+
+    if subir_a_weetrust:
+        import weetrust
+        titulo("Subiendo a WeeTrust como BORRADOR")
+        if redirigir_a:
+            print("  Los correos de TODOS los firmantes se ponen en %s" % redirigir_a)
+            print("  en lugar de los reales. Es una prueba.")
+        print("  Solo se sube el archivo y se corta. No se asignan firmantes:")
+        print("  eso sacaria el documento de borrador.")
+        sys.stdout.flush()
+        try:
+            pasos = weetrust.subir_borrador(
+                plan, unido, exp, asunto=firma.ASUNTO,
+                mensaje=firma.mensaje(exp), redirigir_a=redirigir_a)
+        except Exception as e:
+            print("\n  No se pudo: %s" % e)
+            return 1
+        print()
+        print("  Subido. status: %s" % pasos.get("status"))
+        print("  documentID: %s" % pasos.get("documentID"))
+        print("  divisiones creadas: %d" % len(pasos.get("divisiones") or []))
+        if pasos.get("aviso"):
+            print("  AVISO: %s" % pasos["aviso"])
+        print()
+        print("  Falta capturar en la plataforma, por division:")
+        for d in pasos.get("firmantes_sugeridos") or []:
+            print("    %-34s p.%s" % (d["division"], d["paginas"]))
+            for f in d["firmantes"]:
+                nivel = ("identidad + background check"
+                         if f.get("identification") else "firma simple")
+                print("        %-30s %-24s %s"
+                      % (f["name"], f.get("emailID") or "(sin correo)", nivel))
+        print()
+        print("  Queda en BORRADOR. Los firmantes se capturan en la plataforma:")
+        print("  asignarlos por API saca el documento de borrador y genera los")
+        print("  enlaces de firma en ese momento.")
 
     if guardar_archivo:
         destino = os.path.join(RAIZ, "out", "%s_plan_de_firma.txt" % folio)
@@ -1069,7 +1106,11 @@ def main(argv):
         if orden == "historial" and len(args) == 1:
             return cmd_historial(args[0])
         if orden == "firma" and args:
-            return cmd_firma(args[0], guardar_archivo="--guardar" in args)
+            correo = next((a.split("=", 1)[1] for a in args
+                           if a.startswith("--correo=")), None)
+            return cmd_firma(args[0], guardar_archivo="--guardar" in args,
+                             subir_a_weetrust="--subir" in args,
+                             redirigir_a=correo)
         if orden == "resumen" and args:
             return cmd_resumen(args[0], guardar_archivo="--guardar" in args)
         if orden in ("ayuda", "-h", "--help"):
