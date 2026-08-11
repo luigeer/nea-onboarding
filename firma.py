@@ -202,14 +202,15 @@ Cómo firmar:
    minutos.
 4. Revise cada documento y fírmelos. Son varios y se firman en una sola sesión.
 
-Al terminar recibirá una copia de todo lo firmado, y nosotros activamos sus
-tarjetas el mismo día.
+Al terminar recibirá una copia de todo lo firmado. Una vez firmados los
+documentos, su representante comercial se pondrá en contacto con ustedes para
+agendar la capacitación y que puedan empezar a usar la plataforma cuanto antes.
 
 Si algo no funciona o tiene alguna duda antes de firmar, responda a este correo
 y lo resolvemos.
 
 Gracias por la confianza,
-Nea Card
+Equipo Nea
 Grit Payment Solutions, S.A.P.I. de C.V.""" % (saludo, monto, plazo, razon)
 
 

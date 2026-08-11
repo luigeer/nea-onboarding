@@ -139,3 +139,55 @@ if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
     sys.exit(1)
 print("Todas las pruebas pasaron.")
+
+# ── el cliente de WeeTrust: los cortes y el nivel de verificacion ────────────
+print("WeeTrust")
+import weetrust
+
+p = firma.plan(manifiesto("contrato", "adenda_os_pm", "beneficiario_controlador",
+                          "pld_pm", "domiciliacion"))
+# Sin unir el PDF no hay paginas; se simulan para probar el calculo del corte.
+paginas = {"Contrato y obligación solidaria": (1, 13),
+           "Identificación del cliente": (14, 18),
+           "Autorización de domiciliación": (19, 20)}
+for d in p["divisiones"]:
+    d["pagina_inicial"], d["pagina_final"] = paginas[d["division"]]
+
+cortes = weetrust.paginas_de_corte(p)
+check(cortes == [14, 19],
+      "el corte va en la primera pagina de cada division a partir de la segunda")
+check(1 not in cortes,
+      "y nunca en la pagina 1: el documento ya empieza ahi")
+
+s = weetrust.firmantes_de(p["divisiones"][0])
+cliente = next(x for x in s if x["name"] == "JUAN PEREZ GARCIA")
+nea = next(x for x in s if x["name"] == "Marcos Siqueiros Ballesteros")
+check(cliente.get("identification") == "face" and cliente.get("check") is True,
+      "el cliente lleva identification=face con check=true (background check)")
+check("identification" not in nea and "check" not in nea,
+      "y Nea no lleva verificacion: firma simple")
+
+# LO IMPORTANTE: no debe existir forma de enviar desde este modulo.
+fuente = open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "weetrust.py"), encoding="utf-8").read()
+check("/documents/share" not in fuente,
+      "el modulo no llama a /documents/share: enviar es decision de una persona")
+check("resend" not in fuente.lower(),
+      "ni reenvia correos")
+check('"disableMailing": True' in fuente,
+      "y fuerza disableMailing en True")
+# Contar apariciones era fragil —la palabra sale en el docstring— y una prueba
+# fragil se borra en cuanto molesta. Lo que importa es que no exista una via
+# para apagarlo: ni asignado a False, ni como parametro de una funcion.
+import re as _re
+check(not _re.search(r"disableMailing\W+(False|false|0)\b", fuente),
+      "y nunca se asigna en False")
+check(not _re.search(r"def \w+\([^)]*disableMailing", fuente, _re.S),
+      "ni se recibe como parametro: no hay forma de pedirle que envie")
+
+print("El correo, corregido")
+m = firma.mensaje(exp)
+check("activamos sus tarjetas" not in m, "ya no promete activar tarjetas el mismo dia")
+check("representante comercial se pondrá en contacto" in m,
+      "y anuncia que el representante comercial agenda la capacitacion")
+check("Equipo Nea" in m and "Nea Card" not in m, "firma como Equipo Nea")

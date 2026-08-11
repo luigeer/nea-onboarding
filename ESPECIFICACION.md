@@ -445,21 +445,33 @@ cuatro grupos a dos.
 
 ### Etapa 7 — Firma (aplazada)
 
-WeeTrust, `api.weetrust.mx`, documentado en `/api-docs/`. Autenticación por header
-`X-API-Key`; hay sandbox.
+WeeTrust, documentado en `developer.weetrust.mx/reference/`. **Corregido en agosto
+2026 contra la documentación real:** la autenticación NO es por `X-API-Key` como
+decía aquí antes, sino por dos headers en cada llamada, `user-id` y `token`. Y **no
+hay sandbox**: toda llamada va a producción.
 
-Flujo: `POST /access/token` (el token vive **cinco minutos**, así que cada ejecución
-pide uno nuevo) → `POST /documents` (multipart, **un documento por llamada**) →
-`PUT /documents/signatory` → `PUT /documents/fixed-signatory` → `PUT
-/documents/share` → `GET /documents/{id}` o webhook.
+Flujo: `POST /access/token` → `POST /documents` (el archivo va en el cuerpo, y el
+header **`splitPage`** lleva los números de página donde cortar, separados por
+comas: así se divide un PDF unido en varios documentos firmables) → `PUT
+/documents/signatory` → `GET /documents/{id}` o webhook.
 
-Como se sube un documento por llamada y los firmantes se asignan por `documentID`,
-para tener una sola ceremonia hay que **unir con pypdf** los documentos que comparten
-firmantes antes de subirlos. Con grupos, `disableMailing` evita que el representante
-reciba veinticinco correos.
+**`PUT /documents/signatory` manda los correos por default.** `disableMailing: true`
+los apaga. Ese endpoint también recibe `title` y `message`, o sea el asunto y el
+cuerpo del correo de invitación.
 
-`signatoryObj` permite exigir identificación por `id` o por `face`; la biometría
-facial deja mejor soportada la identificación en el expediente.
+Como los firmantes se asignan por `documentID`, para tener una sola ceremonia hay
+que **unir con pypdf** los documentos y subirlos como uno, usando `splitPage` para
+cortarlos. Eso está implementado en `firma.py` —las reglas de división— y en
+`weetrust.py` —el cliente—.
+
+`signatoryObj` permite exigir identificación por `id`, `face`, `ocr` o
+`face_login`; `check: true` agrega background check y solo aplica con `face`. Se
+usa `face` porque la biometría facial deja mejor soportada la identificación en el
+expediente: queda la selfie contra la credencial, no solo la foto de la credencial.
+
+**El envío no se automatiza y no es un pendiente.** Sin sandbox, un bug manda un
+contrato a un cliente real y eso no se deshace. `weetrust.py` sube, divide, asigna
+firmantes y precarga el correo; el envío lo hace una persona desde la plataforma.
 
 ### Etapa 8 — Cierre y alta
 
