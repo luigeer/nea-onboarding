@@ -226,6 +226,13 @@ def compuertas_generacion(exp):
     #              la operativa—. No hay documento que reemplazar: eso lo resuelve
     #              una decisión de crédito, y la decisión se toma sabiéndolo.
     #
+    # La clase también dice QUIÉN firma la aceptación, y no es lo mismo: una
+    # observación de clase `documento` —aceptar un comprobante de domicilio que
+    # no cumple la política de tres meses— la acepta quien responde por la
+    # política, o sea cumplimiento. Una de clase `riesgo` la asume quien decide
+    # el crédito. Confundirlas pone la firma equivocada en un registro que existe
+    # justamente para saber quién respondió por qué.
+    #
     # Sin esta distinción un hallazgo de riesgo grave bloqueaba la generación sin
     # salida posible, y la única forma de avanzar era bajarle la gravedad, que es
     # justo lo que no se quiere que alguien haga. Un riesgo alto sí se puede
