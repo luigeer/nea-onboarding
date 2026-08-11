@@ -167,23 +167,46 @@ check(cliente.get("identification") == "face" and cliente.get("check") is True,
 check("identification" not in nea and "check" not in nea,
       "y Nea no lleva verificacion: firma simple")
 
-# LO IMPORTANTE: no debe existir forma de enviar desde este modulo.
-fuente = open(os.path.join(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))), "weetrust.py"), encoding="utf-8").read()
-check("/documents/share" not in fuente,
-      "el modulo no llama a /documents/share: enviar es decision de una persona")
-check("resend" not in fuente.lower(),
-      "ni reenvia correos")
-check('"disableMailing": True' in fuente,
-      "y fuerza disableMailing en True")
-# Contar apariciones era fragil —la palabra sale en el docstring— y una prueba
-# fragil se borra en cuanto molesta. Lo que importa es que no exista una via
-# para apagarlo: ni asignado a False, ni como parametro de una funcion.
-import re as _re
-check(not _re.search(r"disableMailing\W+(False|false|0)\b", fuente),
-      "y nunca se asigna en False")
-check(not _re.search(r"def \w+\([^)]*disableMailing", fuente, _re.S),
-      "ni se recibe como parametro: no hay forma de pedirle que envie")
+# LO IMPORTANTE: el camino de borrador no puede enviar, y enviar exige una
+# confirmacion literal. Enviar es la unica accion del proyecto cuyo efecto le
+# llega a alguien fuera de la empresa y no se deshace.
+import inspect
+import weetrust as _wt
+
+fuente_borrador = inspect.getsource(_wt.subir_borrador)
+check("signatory" not in fuente_borrador,
+      "subir_borrador no toca /documents/signatory: no puede sacar de borrador")
+check("disableMailing" not in fuente_borrador,
+      "ni menciona disableMailing: ese camino no envia aunque alguien se equivoque")
+
+try:
+    _wt.enviar_a_firma("x", [{"name": "A", "emailID": "a@b.c"}], "t", "m")
+    check(False, "enviar_a_firma sin confirmacion debe negarse")
+except _wt.ErrorWeeTrust as e:
+    check("confirmacion" in str(e), "enviar_a_firma sin confirmacion se niega")
+
+try:
+    _wt.enviar_a_firma("x", [{"name": "A", "emailID": "a@b.c"}], "t", "m",
+                       confirmacion=True)
+    check(False, "un booleano no debe alcanzar como confirmacion")
+except _wt.ErrorWeeTrust:
+    check(True, "y un booleano no alcanza: hay que escribir la palabra")
+
+try:
+    _wt.enviar_a_firma("x", [{"name": "A", "emailID": "a@b.c"},
+                             {"name": "B", "emailID": "a@b.c"}],
+                       "t", "m", confirmacion=_wt.CONFIRMACION)
+    check(False, "dos firmantes con el mismo correo deben rechazarse antes de llamar")
+except _wt.ErrorWeeTrust as e:
+    check("comparten correo" in str(e),
+          "dos firmantes con el mismo correo se rechazan antes de llamar a la API")
+
+try:
+    _wt.enviar_a_firma("x", [{"name": "SIN CORREO"}], "t", "m",
+                       confirmacion=_wt.CONFIRMACION)
+    check(False, "un firmante sin correo debe detener el envio")
+except _wt.ErrorWeeTrust as e:
+    check("Sin correo" in str(e), "y un firmante sin correo detiene el envio")
 
 print("El correo, corregido")
 m = firma.mensaje(exp)

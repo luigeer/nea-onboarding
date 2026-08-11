@@ -1,25 +1,30 @@
 # -*- coding: utf-8 -*-
 """
-weetrust.py — Cliente de WeeTrust, solo hasta borrador
-=======================================================
-Sube el PDF unido, lo corta en divisiones y asigna los firmantes con su nivel de
-verificación. **No manda a firma.** No hay aquí una función que envíe, y eso es
-una decisión de diseño, no un pendiente.
+weetrust.py — Cliente de WeeTrust
+==================================
+Dos caminos, y la diferencia entre ellos es todo:
 
-**Por qué el envío no se automatiza.** WeeTrust no tiene ambiente de pruebas:
-cada llamada va a producción. Y `PUT /documents/signatory` **manda los correos
-por default** —así lo documenta WeeTrust—, así que este cliente fuerza
-`disableMailing: true` en cada llamada, sin dejar forma de apagarlo. El envío lo
-hace una persona desde la plataforma, viendo el documento ya dividido. Un bug
-aquí no se deshace: le llega un contrato a un cliente real.
+  `subir_borrador()`  sube el PDF unido y lo corta en divisiones. Queda en DRAFT.
+                      No toca firmantes ni menciona el envío: no puede mandar
+                      nada aunque alguien se equivoque.
+  `enviar_a_firma()`  asigna firmantes **y manda los correos**. Pide una
+                      confirmación literal porque es la única acción del
+                      proyecto cuyo efecto le llega a alguien fuera de la
+                      empresa y no se deshace.
 
-Lo que sí hace, y es la parte que se equivoca al hacerla a mano:
+**Lo que se aprendió probando contra la API**, porque no está documentado:
 
-  · unir los PDF y calcular en qué páginas cortar (`splitPage`)
-  · poner `identification: "face"` con `check: true` al representante del
-    cliente, y firma simple a los nuestros
-  · precargar el asunto y el mensaje del correo, para que cuando alguien le dé
-    enviar salga el texto correcto y no uno improvisado
+  · `PUT /documents/signatory` saca el documento de DRAFT y lo pasa a PENDING, y
+    genera las URL de firma en ese momento. Con `disableMailing: true` no manda
+    correos —verificado— pero los enlaces quedan vivos. O sea que no existe un
+    punto intermedio: o es borrador sin firmantes, o está activo.
+  · Las divisiones no se materializan mientras el documento está en DRAFT. Por
+    eso en el borrador no se ven las separaciones: aparecen al salir de borrador.
+  · `identification` y `check` no persistieron al mandarlos por API. La
+    verificación de identidad se configura en la plataforma.
+
+Lo que sí aporta la integración y es la parte que se equivoca a mano: unir los
+PDF y cortarlos en las páginas correctas.
 
 Documentado en https://developer.weetrust.mx/reference/ — verificado agosto 2026:
 `POST /documents` con headers `user-id`, `token` y `splitPage`;
@@ -282,3 +287,51 @@ def _ids_de(respuesta):
     padre = d.get("documentID") or d.get("_id")
     hijos = [x for x in (d.get("splitChildDocumentId") or "").split(",") if x]
     return hijos + ([padre] if padre else [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Envío
+# ─────────────────────────────────────────────────────────────────────────────
+CONFIRMACION = "ENVIAR"
+
+
+def enviar_a_firma(document_id, firmantes, asunto, mensaje, confirmacion=None):
+    """Asigna los firmantes Y manda los correos. **Esto sí envía.**
+
+    Está separado de `subir_borrador` a propósito, y pide una confirmación
+    literal, porque es la única función del proyecto cuyo efecto le llega a una
+    persona fuera de la empresa y no se deshace. Un parámetro booleano se pasa
+    por error; la cadena "ENVIAR" hay que escribirla.
+
+    `disableMailing` va en `False` aquí y solo aquí. En `subir_borrador` no
+    existe: ese camino no puede enviar aunque alguien se equivoque.
+
+    Devuelve la respuesta de WeeTrust, que incluye la URL de firma de cada
+    firmante y sirve para verificar a quién se le mandó qué.
+    """
+    if confirmacion != CONFIRMACION:
+        raise ErrorWeeTrust(
+            "enviar_a_firma manda correos reales a los firmantes y no se puede "
+            "deshacer. Para ejecutarlo hay que pasar confirmacion=%r." % CONFIRMACION)
+
+    correos = [f.get("emailID") for f in firmantes]
+    if len(set(correos)) != len(correos):
+        raise ErrorWeeTrust(
+            "Dos firmantes comparten correo y WeeTrust lo rechaza. Cada firmante "
+            "necesita una direccion distinta.")
+    sin_correo = [f.get("name") for f in firmantes if not f.get("emailID")]
+    if sin_correo:
+        raise ErrorWeeTrust("Sin correo: %s. No se envia con firmantes incompletos."
+                            % ", ".join(sin_correo))
+
+    usuario, _ = _config()
+    acceso = token()
+    cuerpo = {
+        "documentID": document_id,
+        "signatory": firmantes,
+        "title": asunto,
+        "message": mensaje,
+        "disableMailing": False,
+    }
+    return _pedir("PUT", "/documents/signatory", cuerpo=cuerpo,
+                  headers={"user-id": usuario}, token_acceso=acceso)
