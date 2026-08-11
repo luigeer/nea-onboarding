@@ -19,6 +19,7 @@ este usa por dentro.
     python nea.py perfil <FOLIO>           deriva el perfil y captura lo que falta
     python nea.py riesgo <FOLIO>           corre el modelo y guarda el score
     python nea.py resumen <FOLIO>          el resumen ejecutivo para comité
+    python nea.py firma <FOLIO>            prepara el paquete para WeeTrust
 
 Los expedientes se guardan en la carpeta `expedientes/` de tu computadora. Si
 configuraste Supabase (ver SETUP_SUPABASE.md), además se sincronizan solos a la
@@ -999,6 +1000,45 @@ def cmd_front():
                             "--browser.gatherUsageStats=false"], cwd=RAIZ)
 
 
+def cmd_firma(folio, guardar_archivo=False):
+    """Prepara el paquete para WeeTrust: PDF unido, divisiones y correo.
+
+    NO manda nada a firma. Deja el archivo listo y el plan escrito para que una
+    persona lo suba y lo revise: enviar a firma es irreversible y le llega a un
+    cliente real.
+    """
+    import firma
+    exp = cargar(folio)
+    dir_paq = os.path.join(RAIZ, "expedientes", "%s_paquete" % folio)
+    ruta_man = os.path.join(dir_paq, "%s_manifiesto.json" % folio)
+    if not os.path.exists(ruta_man):
+        print("Falta el paquete. Primero:  python nea.py generar %s" % folio)
+        return 1
+    with open(ruta_man, encoding="utf-8") as fh:
+        manifiesto = json.load(fh)
+
+    plan = firma.plan(manifiesto, exp)
+    unido = os.path.join(dir_paq, "%s_PARA_FIRMA.pdf" % folio)
+    firma.unir(plan, dir_paq, unido)
+
+    print()
+    print(firma.texto_plan(plan, exp))
+    titulo("Mensaje del correo")
+    print()
+    print(firma.mensaje(exp))
+
+    if guardar_archivo:
+        destino = os.path.join(RAIZ, "out", "%s_plan_de_firma.txt" % folio)
+        os.makedirs(os.path.dirname(destino), exist_ok=True)
+        with open(destino, "w", encoding="utf-8") as fh:
+            fh.write(firma.texto_plan(plan, exp))
+            fh.write("\n\n\nASUNTO: %s\n\n" % firma.ASUNTO)
+            fh.write(firma.mensaje(exp))
+        print("\n  Plan guardado en %s" % destino)
+    print("\n  El PDF unido está en:\n    %s" % unido)
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         return cmd_inicio()
@@ -1028,6 +1068,8 @@ def main(argv):
             return cmd_tablero(solo_atorados="--atorados" in args)
         if orden == "historial" and len(args) == 1:
             return cmd_historial(args[0])
+        if orden == "firma" and args:
+            return cmd_firma(args[0], guardar_archivo="--guardar" in args)
         if orden == "resumen" and args:
             return cmd_resumen(args[0], guardar_archivo="--guardar" in args)
         if orden in ("ayuda", "-h", "--help"):
