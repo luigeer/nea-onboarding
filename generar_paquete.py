@@ -43,6 +43,14 @@ ASSETS = os.path.join(BASE, "assets")
 NEA_FIRMANTE = {"rol": "nea", "nombre": "Marcos Siqueiros Ballesteros",
                 "cargo": "Representante Legal de Grit Payment Solutions, S.A.P.I. de C.V."}
 
+# El Oficial de Cumplimiento es uno en la empresa, no uno por cliente. Vivia como
+# campo del expediente y por eso pudo quedar mal en un expediente: la compuerta
+# pedia un nombre, alguien lo lleno a mano y nadie lo comparo contra nada. Aqui
+# hay una sola copia; el campo del expediente solo sirve para el caso en que
+# firme alguien distinto, y entonces es una excepcion explicita.
+NEA_CUMPLIMIENTO = {"rol": "cumplimiento", "nombre": "Marcos Siqueiros Ballesteros",
+                    "cargo": "Oficial de Cumplimiento"}
+
 # clave -> (sufijo del archivo, función generadora, template o None, etiqueta)
 CATALOGO = {
     "contrato": ("Contrato", fill_contrato, "Contrato_Vacio.pdf",
@@ -79,15 +87,18 @@ def _firmantes(clave, exp):
                "correo": _get(exp, "representante_legal.propuesto.correo")}
     cofirmantes = [{"rol": "cofirmante_cliente", "nombre": c.get("nombre"),
                     "correo": c.get("correo")} for c in _get(exp, "cofirmantes", [])]
-    # La compuerta exige `bc_firmado_por` y el documento imprimía
-    # `cumplimiento.responsable`: dos campos para lo mismo, así que el formato que
-    # legalmente requiere firma de cumplimiento salía con la línea en blanco
-    # aunque la compuerta estuviera satisfecha. Se lee el detallado y se cae al
-    # que valida la compuerta.
+    # El Oficial de Cumplimiento sale de NEA_CUMPLIMIENTO. El expediente solo lo
+    # sobreescribe si trae un nombre distinto, que es la excepcion y no la regla.
+    #
+    # Antes la compuerta exigia `bc_firmado_por` y el documento imprimia
+    # `cumplimiento.responsable` —dos campos para lo mismo—, asi que el formato
+    # que legalmente requiere esta firma salia con la linea en blanco aunque la
+    # compuerta estuviera satisfecha.
     resp = _get(exp, "cumplimiento.responsable") or {}
-    cumplimiento = {"rol": "cumplimiento",
-                    "nombre": resp.get("nombre") or _get(exp, "cumplimiento.bc_firmado_por"),
-                    "cargo": resp.get("cargo") or "Oficial de Cumplimiento"}
+    cumplimiento = dict(NEA_CUMPLIMIENTO)
+    if resp.get("nombre"):
+        cumplimiento.update({"nombre": resp["nombre"],
+                             "cargo": resp.get("cargo") or NEA_CUMPLIMIENTO["cargo"]})
 
     if clave == "contrato":
         return [cliente] + cofirmantes + [NEA_FIRMANTE]
