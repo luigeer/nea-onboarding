@@ -34,7 +34,12 @@ import urllib.request
 
 import firma
 
-BASE = os.environ.get("WEETRUST_BASE") or "https://api.weetrust.com.mx"
+# Produccion es api.weetrust.MX; el sandbox de la documentacion es
+# api-sandbox.weetrust.COM.MX. Son dominios distintos, asi que inferir el de
+# produccion quitandole "-sandbox" al del sandbox da un host que no existe: lo
+# intente y el DNS no resuelve. Se deja el verificado, y WEETRUST_BASE en el .env
+# lo sobreescribe si algun dia cambia.
+BASE = "https://api.weetrust.mx"
 
 # Cómo se traduce el nivel del plan de firma a lo que pide WeeTrust.
 #
@@ -54,6 +59,12 @@ class ErrorWeeTrust(Exception):
     pass
 
 
+def _base():
+    """La URL base, del .env si está, y si no la de producción verificada."""
+    import db
+    return (db._leer_env().get("WEETRUST_BASE") or "").rstrip("/") or BASE
+
+
 def _config():
     """Las credenciales, del .env. Nunca se escriben en el código."""
     import db
@@ -71,13 +82,23 @@ def _config():
 def token():
     """El token de acceso. Vive pocos minutos, así que se pide en cada corrida.
 
-    El endpoint de autenticación no está documentado públicamente en el detalle
-    de su cuerpo; se arma con lo que expone la referencia y se deja el error
-    crudo a la vista si no coincide, en lugar de adivinar y fallar en silencio.
+    Verificado contra la API en agosto 2026, porque no está en la documentación
+    pública: la llave va en el header **`api-key`** —no en el cuerpo, y no se
+    llama `X-API-Key`— junto con `user-id`, y la petición va **sin cuerpo**. El
+    token viene en `responseData.accessToken`.
+
+    Los dos intentos anteriores fallaron y vale dejarlo escrito: con la llave en
+    el cuerpo devuelve un 400 cuyo mensaje habla de `user-id`, que manda a buscar
+    el problema al lado equivocado.
     """
     usuario, llave = _config()
-    return _pedir("POST", "/access/token", cuerpo={"apiKey": llave},
-                  headers={"user-id": usuario})
+    r = _pedir("POST", "/access/token",
+               headers={"api-key": llave, "user-id": usuario})
+    acceso = (r.get("responseData") or {}).get("accessToken")
+    if not acceso:
+        raise ErrorWeeTrust("La autenticación no devolvió accessToken. "
+                            "Respuesta: %s" % json.dumps(r)[:300])
+    return acceso
 
 
 def _pedir(metodo, ruta, cuerpo=None, headers=None, token_acceso=None):
@@ -87,7 +108,7 @@ def _pedir(metodo, ruta, cuerpo=None, headers=None, token_acceso=None):
     cabeceras.update(headers or {})
 
     datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
-    pet = urllib.request.Request(BASE + ruta, data=datos, headers=cabeceras,
+    pet = urllib.request.Request(_base() + ruta, data=datos, headers=cabeceras,
                                  method=metodo)
     try:
         with urllib.request.urlopen(pet, timeout=60) as r:
@@ -97,7 +118,7 @@ def _pedir(metodo, ruta, cuerpo=None, headers=None, token_acceso=None):
         detalle = e.read().decode("utf-8", "replace")[:500]
         raise ErrorWeeTrust("%s %s -> HTTP %s\n%s" % (metodo, ruta, e.code, detalle))
     except urllib.error.URLError as e:
-        raise ErrorWeeTrust("No se pudo conectar a %s: %s" % (BASE, e.reason))
+        raise ErrorWeeTrust("No se pudo conectar a %s: %s" % (_base(), e.reason))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -137,11 +158,7 @@ def subir_borrador(plan_firma, ruta_pdf, exp=None, asunto=None, mensaje=None):
     """
     import base64
 
-    tk = token()
-    acceso = tk.get("token") or tk.get("accessToken") or tk.get("data", {}).get("token")
-    if not acceso:
-        raise ErrorWeeTrust("La autenticación no devolvió token. Respuesta: %s"
-                            % json.dumps(tk)[:300])
+    acceso = token()
     usuario, _ = _config()
 
     with open(ruta_pdf, "rb") as fh:
