@@ -159,6 +159,31 @@ def cargar(folio):
         "ves la lista." % folio)
 
 
+RUTA_OPERADOR = os.path.join(RAIZ, ".credenciales", "operador.txt")
+
+
+def _operador_recordado():
+    """El nombre de quien opera, para no teclearlo en cada expediente.
+
+    Se guarda junto a las credenciales porque es del equipo, no del proyecto:
+    `.credenciales/` está en .gitignore, así que el nombre de una persona real no
+    termina en GitHub.
+    """
+    try:
+        with open(RUTA_OPERADOR, encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def _recordar_operador(nombre):
+    if not nombre:
+        return
+    os.makedirs(os.path.dirname(RUTA_OPERADOR), exist_ok=True)
+    with open(RUTA_OPERADOR, "w", encoding="utf-8") as fh:
+        fh.write(nombre.strip())
+
+
 def _actualizado_local(ruta):
     """La marca de tiempo del archivo, en el mismo formato ISO que Supabase."""
     from datetime import datetime, timezone
@@ -296,7 +321,13 @@ def cmd_nuevo(ruta_csf):
     sol["plazo"] = preguntar("Plazo", default="Mensual")
     sol["tarjetas"] = preguntar("Número de tarjetas")
     exp["flags"]["domiciliacion"] = preguntar_si_no("¿Requiere domiciliación?")
-    exp["quien_lleno"] = os.environ.get("USERNAME") or "—"
+    # Este nombre se imprime en el formato PLD, que es lo que lee un verificador
+    # de la UIF. El usuario de Windows no es el nombre de una persona: "luisg" en
+    # un Anexo 4 no identifica a nadie. Se pregunta, y se recuerda para no volver
+    # a preguntarlo en cada expediente.
+    exp["quien_lleno"] = preguntar("Quién llena el expediente (nombre completo)",
+                                   default=_operador_recordado())
+    _recordar_operador(exp["quien_lleno"])
 
     titulo("Guardando")
     guardar(exp)
