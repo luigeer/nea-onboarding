@@ -309,8 +309,24 @@ def para_adenda_pf(exp):
 # 8. Autorización de domiciliación
 # ─────────────────────────────────────────────────────────────────────────────
 def para_domiciliacion(exp):
+    """La autorización de domiciliación, sobre la cuenta que se decidió cargar.
+
+    Manda `domiciliacion_clabe` del expediente. Antes se tomaba la primera cuenta
+    con CLABE en pesos, y eso funciona por accidente mientras hay una sola: con
+    dos cuentas del mismo cliente domicilia la que aparezca primero en la lista,
+    que no tiene por qué ser la que el cliente pidió. La cuenta que se carga es
+    una decisión del cliente, no un orden de captura.
+    """
     cuentas = _get(exp, "cuentas_bancarias", [])
-    cta = next((c for c in cuentas if c.get("clabe") and c.get("divisa", "MXN") == "MXN"), None)
+    elegida = _get(exp, "domiciliacion_clabe")
+    cta = None
+    if elegida:
+        objetivo = "".join(ch for ch in str(elegida) if ch.isdigit())
+        cta = next((c for c in cuentas
+                    if "".join(ch for ch in str(c.get("clabe") or "") if ch.isdigit())
+                    == objetivo), None)
+    cta = cta or next((c for c in cuentas
+                       if c.get("clabe") and c.get("divisa", "MXN") == "MXN"), None)
     cta = cta or (cuentas[0] if cuentas else {})
     return {
         "razon_social": _get(exp, "cliente.validado.razon_social"),

@@ -427,3 +427,28 @@ e["credito"]["solicitada"]["plazo"] = "Quincenal"
 d = ADAPTADORES["domiciliacion"](e)
 check(d["periodicidad"] == "Quincenal",
       "sin autorizada se cae a la solicitada, nunca a un valor fijo")
+
+# La cuenta que se domicilia es una decision, no un orden de captura.
+e = listo_para_generar()
+e["flags"]["domiciliacion"] = True
+e["cuentas_bancarias"] = [
+    {"banco": "BBVA", "clabe": "012180001111111118", "titular_es_cliente": True,
+     "divisa": "MXN", "periodos": ["2026-05", "2026-06", "2026-07"]},
+    {"banco": "Banorte", "clabe": "072180013227570436", "titular_es_cliente": True,
+     "divisa": "MXN", "periodos": ["2026-05", "2026-06", "2026-07"]},
+]
+d = ADAPTADORES["domiciliacion"](e)
+check(d["clabe"] == "012180001111111118",
+      "sin eleccion explicita se toma la primera cuenta en pesos con CLABE")
+
+e["domiciliacion_clabe"] = "072180013227570436"
+d = ADAPTADORES["domiciliacion"](e)
+check(d["clabe"] == "072180013227570436" and d["banco"] == "Banorte",
+      "pero domiciliacion_clabe manda: con dos cuentas, elegir por orden domiciliaba "
+      "la equivocada sin avisar")
+
+# La CLABE se compara solo por digitos: el cliente la manda con espacios.
+e["domiciliacion_clabe"] = "072 180 01322757043 6"
+d = ADAPTADORES["domiciliacion"](e)
+check(d["clabe"] == "072180013227570436",
+      "y se reconoce aunque venga con espacios, como la escribe el cliente")

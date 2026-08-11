@@ -1,0 +1,11 @@
+# Streamlit pide un correo la primera vez que corre y se queda esperando en la
+# terminal: el comando parece colgado y no arranca. Con la credencial vacía en
+# ~/.streamlit/credentials.toml no vuelve a preguntar.
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = false
+
+[theme]
+primaryColor = "#F1654B"
