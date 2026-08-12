@@ -167,9 +167,11 @@ python nea.py alta LLOSA-01     # lo mismo, en texto plano
 ```
 
 Arriba de la lista sale lo que hay que resolver: campos sin dato y observaciones
-altas abiertas. Los campos que van vacíos **a propósito** —el logo, el referido
-cuando el prospecto vino de un canal propio— salen marcados como tales y no
-aparecen ahí; un campo vacío y un campo faltante no son lo mismo.
+altas abiertas. Los campos que van vacíos **a propósito** salen marcados como
+tales y no aparecen ahí; un campo vacío y un campo faltante no son lo mismo. Van
+vacíos a propósito el logo, el referido cuando el prospecto vino de un canal
+propio, y el comprobante de domicilio de los beneficiarios controladores —no es
+obligatorio y su CSF ya trae el domicilio, así que no se pide—.
 
 Dos cosas para revisar a ojo:
 

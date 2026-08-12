@@ -91,6 +91,16 @@ VINCULOS = ["Participación directa o indirecta en el capital social",
 FALTA = "FALTA"
 SISTEMA = "— lo pone el sistema —"
 
+# El comprobante de domicilio del beneficiario controlador no se pide. La
+# decisión es de Nea (Luis Gómez Montijano, 2026-08-12) y tiene fundamento: el
+# formulario no lo marca obligatorio y la CSF del beneficiario ya trae su
+# domicilio fiscal, que es el dato que se necesita identificar. Va documentado
+# aquí y no como campo faltante: si mañana se pide, se cambia esto y no hay que
+# reconstruir por qué se había dejado de pedir.
+NOTA_DOMICILIO_BC = ("No se pide. El domicilio del beneficiario ya viene en su "
+                     "CSF y el campo no es obligatorio. Decisión de Nea del "
+                     "2026-08-12.")
+
 
 def _sin_acentos(t):
     tabla = {"Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U", "Ñ": "N",
@@ -285,7 +295,7 @@ def _doc(exp, tipo, sujeto=None):
     return None
 
 
-def _archivo(exp, etiqueta, tipos, sujeto=None, nota=None):
+def _archivo(exp, etiqueta, tipos, sujeto=None, nota=None, opcional=False):
     """El campo de archivo, probando los tipos de documento en orden.
 
     Se prueban varios porque el mismo papel se registra con tipos distintos
@@ -303,7 +313,7 @@ def _archivo(exp, etiqueta, tipos, sujeto=None, nota=None):
                 aviso = "Registrado como %s — es el mismo documento. %s" % (d["tipo"], aviso)
             return _campo(etiqueta, d["archivo"], "archivo", aviso)
     return _campo(etiqueta, None, "archivo",
-                  nota or "No hay este documento en el expediente.")
+                  nota or "No hay este documento en el expediente.", opcional)
 
 
 def _division_firmada(exp, contiene):
@@ -423,7 +433,7 @@ def _seccion_origen(exp):
     ]}
 
 
-def _persona(exp, p, prefijo, con_telefono, con_vinculos, archivos):
+def _persona(exp, p, prefijo, con_telefono, con_vinculos, archivos, notas_archivo=None):
     curp = p.get("curp")
     n = partir_nombre(p.get("nombre"), curp, p.get("nombre_registral"))
     fnac = fecha(p.get("fecha_nacimiento"))
@@ -444,7 +454,8 @@ def _persona(exp, p, prefijo, con_telefono, con_vinculos, archivos):
         campos.append(_campo("Teléfono", p.get("telefono")))
         campos.append(_campo("Correo electrónico", p.get("correo")))
     for etiqueta, tipo in archivos:
-        campos.append(_archivo(exp, etiqueta, tipo, p.get("nombre")))
+        nota, opcional = (notas_archivo or {}).get(etiqueta, (None, False))
+        campos.append(_archivo(exp, etiqueta, tipo, p.get("nombre"), nota, opcional))
     if con_vinculos:
         campos.append(_campo("Vínculos de Control o Beneficio",
                              vinculos_de(exp, p), "casillas",
@@ -501,7 +512,8 @@ def secciones(exp):
                                       "identificacion_rep"]),
                       ("CSF", ["csf_beneficiario"]),
                       ("Comprobante de Domicilio",
-                       ["comprobante_domicilio_beneficiario"])])
+                       ["comprobante_domicilio_beneficiario"])],
+                     {"Comprobante de Domicilio": (NOTA_DOMICILIO_BC, True)})
         s["titulo"] = "BENEFICIARIOS CONTROLADORES" if i == 1 else None
         # El formato de identificación del BC es uno solo para toda la empresa y
         # ya va firmado: se sube el mismo archivo en los dos beneficiarios.

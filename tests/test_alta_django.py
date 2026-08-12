@@ -182,6 +182,16 @@ avisos = ad.pendientes(sin_tel)
 check(any("Teléfono" in a for a in avisos),
       "un dato que falta se enlista; no se pega un campo vacio sin avisar")
 
+# El comprobante de domicilio del beneficiario NO se pide: no es obligatorio y
+# la CSF ya trae el domicilio. Si esto vuelve a salir como pendiente, la lista se
+# llena de algo que nadie va a conseguir y deja de leerse.
+check(not any("Comprobante de Domicilio" in a for a in ad.pendientes(EXP)),
+      "el comprobante de domicilio del beneficiario no entra en pendientes")
+bc = next(s for s in secs if s["seccion"] == "Beneficiario controlador #1")
+cd = next(c for c in bc["campos"] if c["etiqueta"] == "Comprobante de Domicilio")
+check(cd["opcional"] and "CSF" in cd["nota"],
+      "y sale marcado como vacio a proposito, con el motivo")
+
 alta = dict(EXP, observaciones=[{"estado": "abierta", "severidad": "alta",
                                  "descripcion": "Poder sin facultades"}])
 check(any("Observación alta abierta" in a for a in ad.pendientes(alta)),
