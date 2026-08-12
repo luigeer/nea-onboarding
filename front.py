@@ -195,7 +195,8 @@ def vista_cliente(folio, filas, cobs):
         st.info("**Qué lo detiene:** %s" % bloqueo)
 
     tabs = st.tabs(["Score", "Perfil", "Observaciones", "Banco y fiscal",
-                    "Documentos", "Historial", "Resumen ejecutivo"])
+                    "Documentos", "Historial", "Resumen ejecutivo",
+                    "Alta en la base operativa"])
 
     with tabs[0]:
         _tab_score(folio)
@@ -211,6 +212,8 @@ def vista_cliente(folio, filas, cobs):
         _tab_historial(folio)
     with tabs[6]:
         _tab_resumen(folio)
+    with tabs[7]:
+        _tab_alta(folio, exp)
 
 
 MODULOS = [("Perfil de empresa", "modulo_perfil", 0.20),
@@ -476,6 +479,61 @@ def _tab_resumen(folio):
                     language=None)
         except Exception as e:
             st.error("No se pudo: %s" % e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Alta manual en el Django operativo
+#
+# Cada valor va en su propio `st.code`: ese widget trae botón de copiar, que es
+# justo lo que se necesita para llenar un formulario campo por campo. Un
+# dataframe se ve mejor y no se puede copiar celda por celda.
+# ─────────────────────────────────────────────────────────────────────────────
+def _tab_alta(folio, exp):
+    import alta_django as ad
+
+    p = _perfil(folio)
+    if p:
+        exp = dict(exp, _perfil=p)
+
+    st.markdown("#### Alta en la base operativa")
+    st.caption("Los campos del formulario de Django, en el orden de la pantalla y "
+               "con el formato que espera. Las fechas ya vienen en aaaa-mm-dd.")
+
+    avisos = ad.pendientes(exp)
+    if avisos:
+        with st.expander("⚠ %d cosa(s) por resolver antes o durante el alta"
+                         % len(avisos), expanded=True):
+            for a in avisos:
+                st.markdown("- %s" % a)
+
+    for s in ad.secciones(exp):
+        st.divider()
+        if s.get("titulo"):
+            st.markdown("**%s**" % s["titulo"])
+        st.markdown("###### %s" % s["seccion"])
+        for c in s["campos"]:
+            col = st.columns([2, 3])
+            col[0].markdown("%s:" % c["etiqueta"])
+            with col[1]:
+                if c["tipo"] == "sistema":
+                    st.caption(c["valor"])
+                elif c["tipo"] == "checkbox":
+                    st.markdown("**%s**" % ("☑ marcar" if c["valor"]
+                                            else "☐ dejar sin marcar"))
+                elif c["tipo"] == "casillas":
+                    for v in ad.VINCULOS:
+                        st.markdown("%s %s" % ("☑" if v in (c["valor"] or []) else "☐", v))
+                elif c["valor"] in (None, "", []):
+                    st.markdown(":gray[— vacío a propósito —]" if c.get("opcional")
+                                else ":red[FALTA]")
+                else:
+                    st.code(str(c["valor"]), language=None)
+                if c["nota"]:
+                    st.caption(c["nota"])
+
+    st.divider()
+    with st.expander("Todo en texto plano"):
+        st.code(ad.texto(exp), language=None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

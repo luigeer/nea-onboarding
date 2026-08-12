@@ -20,6 +20,7 @@ este usa por dentro.
     python nea.py riesgo <FOLIO>           corre el modelo y guarda el score
     python nea.py resumen <FOLIO>          el resumen ejecutivo para comité
     python nea.py firma <FOLIO>            prepara el paquete para WeeTrust
+    python nea.py alta <FOLIO>             los campos para el alta en el Django
 
 Los expedientes se guardan en la carpeta `expedientes/` de tu computadora. Si
 configuraste Supabase (ver SETUP_SUPABASE.md), además se sincronizan solos a la
@@ -767,6 +768,27 @@ def cmd_resumen(folio, guardar_archivo=False):
     return 0
 
 
+def cmd_alta(folio):
+    """Los campos para dar de alta al cliente a mano en el Django operativo."""
+    import alta_django
+    import db
+
+    exp = db.cargar(folio)
+    filas = db.cliente().table("perfil_empresa").select("*") \
+              .eq("folio", folio).execute().data
+    if filas:
+        exp["_perfil"] = filas[0]
+
+    print(alta_django.texto(exp))
+    avisos = alta_django.pendientes(exp)
+    if avisos:
+        print()
+        print("POR RESOLVER")
+        for a in avisos:
+            print(" * %s" % a)
+    return 0
+
+
 def cmd_drive():
     """Revisa el estado de las credenciales de Drive y prueba la conexion.
 
@@ -1113,6 +1135,8 @@ def main(argv):
                              redirigir_a=correo)
         if orden == "resumen" and args:
             return cmd_resumen(args[0], guardar_archivo="--guardar" in args)
+        if orden == "alta" and len(args) == 1:
+            return cmd_alta(args[0])
         if orden in ("ayuda", "-h", "--help"):
             print(__doc__)
             return 0

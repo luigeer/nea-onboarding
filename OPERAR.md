@@ -145,6 +145,40 @@ python nea.py subir LLOSA-01
 `2 Análisis interno`, y si ya había una versión anterior la manda a
 `0 Superados` en vez de pisarla.
 
+### 11. Mandar a firma
+
+```bash
+python nea.py firma LLOSA-01 --subir
+```
+
+Sube el paquete a WeeTrust **como borrador**, con las divisiones y los niveles de
+firma ya puestos. El envío se hace desde la plataforma de WeeTrust: este comando
+no puede mandarlo.
+
+### 12. Alta en la base operativa — **tú**
+
+Una vez firmado, en el front: pestaña **Alta en la base operativa**. Trae los
+campos del formulario de Django en el orden de la pantalla, cada uno con su botón
+de copiar, las fechas ya en `aaaa-mm-dd` y el régimen fiscal con su clave (el
+dropdown la lleva, la CSF no).
+
+```bash
+python nea.py alta LLOSA-01     # lo mismo, en texto plano
+```
+
+Arriba de la lista sale lo que hay que resolver: campos sin dato y observaciones
+altas abiertas. Los campos que van vacíos **a propósito** —el logo, el referido
+cuando el prospecto vino de un canal propio— salen marcados como tales y no
+aparecen ahí; un campo vacío y un campo faltante no son lo mismo.
+
+Dos cosas para revisar a ojo:
+
+- El **nombre partido** en nombre / paterno / materno. Cuando la CURP lo
+  comprueba no se dice nada; cuando no, sale una nota que manda a la
+  identificación oficial. Esa nota hay que atenderla.
+- Los **dropdowns**. Si el catálogo del Django no trae exactamente la opción que
+  proponemos, manda el catálogo.
+
 ---
 
 ## Lo que todavía necesita una persona
@@ -154,6 +188,8 @@ Con un cliente al mes no importa. Con diez, son unas cuatro horas al mes:
 - **el buró**, porque es un portal con VPN y credenciales que rotan cada 30 días
 - **los CEPs de Banxico**, que se consultan uno por uno
 - **traer los documentos** de la carpeta del vendedor
+- **el alta en el Django**, mientras no haya conexión directa. Los campos ya
+  salen armados; lo que falta es pegarlos
 
 Ahí está el siguiente proyecto, no en una pantalla más bonita.
 
