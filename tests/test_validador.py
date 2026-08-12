@@ -452,3 +452,31 @@ e["domiciliacion_clabe"] = "072 180 01322757043 6"
 d = ADAPTADORES["domiciliacion"](e)
 check(d["clabe"] == "072180013227570436",
       "y se reconoce aunque venga con espacios, como la escribe el cliente")
+
+# ── la garantia personal que se decide NO pedir ───────────────────────────────
+# El bloque `obligado_solidario_pf` se conserva como historia y se marca. Si no
+# se respetara la marca, el siguiente `generar` volveria a producir una adenda
+# que alguien ya decidio que no va, y saldria a firma sin que nadie lo pidiera.
+print("Garantia personal descartada")
+from schema_expediente import documentos_aplicables
+
+g = {"flags": {"obligado_solidario": True, "domiciliacion": False},
+     "tipo_cliente": "persona_moral",
+     "obligado_solidario": {"tipo": "persona_moral", "razon_social": "GARANTE"},
+     "obligado_solidario_pf": {"nombre": "JUAN PEREZ GARCIA"}}
+check("adenda_os_pf" in documentos_aplicables(g),
+      "con garante persona fisica capturado, la adenda PF es aplicable")
+
+g["obligado_solidario_pf"]["no_aplica"] = {"fecha": "2026-08-12",
+                                           "motivo": "solo la persona moral"}
+docs = documentos_aplicables(g)
+check("adenda_os_pf" not in docs,
+      "marcada como no aplicable, deja de generarse")
+check("adenda_os_pm" in docs,
+      "y la adenda corporativa sigue: descartar la personal no toca la corporativa")
+
+print()
+if fallas:
+    print("%d prueba(s) fallaron" % len(fallas))
+    sys.exit(1)
+print("Todas las pruebas pasaron.")

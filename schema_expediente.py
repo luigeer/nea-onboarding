@@ -117,6 +117,10 @@ def expediente_vacio():
             "identificacion": {"tipo": None, "numero": None,
                                "autoridad_emisora": None},
             "motivo": None,     # por qué se pidió además de la garantía corporativa
+            # Cuando se decide no pedir la garantía personal, esto queda con el
+            # motivo, la fecha y quién decidió; el resto del bloque se conserva
+            # como historia. Ver `documentos_aplicables`.
+            "no_aplica": None,
         },
         "obligado_solidario": {
             "tipo": None,                  # ver TIPOS_OBLIGADO
@@ -312,7 +316,15 @@ def documentos_aplicables(exp):
     # bajarle la gravedad a la observación: fue que el accionista de control
     # firmara además por su propio derecho, de modo que si la corporativa falla
     # quede la personal.
-    if _get(exp, "obligado_solidario_pf.nombre"):
+    #
+    # `no_aplica` es la salida de ese caso cuando se decide **no** pedir la
+    # garantía personal. El bloque no se borra: se marca. Borrarlo dejaría el
+    # expediente sin memoria de que se pidió y se descartó, y el que lo lea el
+    # año que viene no sabría si fue una decisión o un olvido. Marcarlo evita
+    # además lo peor: que el siguiente `generar` vuelva a producir un documento
+    # que alguien ya decidió que no va.
+    if (_get(exp, "obligado_solidario_pf.nombre")
+            and not _get(exp, "obligado_solidario_pf.no_aplica")):
         if "adenda_os_pf" not in docs:
             docs.append("adenda_os_pf")
 

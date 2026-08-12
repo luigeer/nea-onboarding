@@ -342,8 +342,10 @@ def _seccion_empresa(exp):
     if garantizada:
         nota_gar = "Obligado solidario: %s (%s)." % (os_.get("razon_social"),
                                                     os_.get("rfc"))
-        if (exp.get("obligado_solidario_pf") or {}).get("diferida"):
-            nota_gar += " La adenda de obligado solidario persona física está diferida."
+        pf = exp.get("obligado_solidario_pf") or {}
+        if pf.get("no_aplica"):
+            nota_gar += (" La garantía es solo corporativa: no hay obligado "
+                         "solidario persona física.")
 
     clabe = exp.get("domiciliacion_clabe") or {}
     if isinstance(clabe, str):

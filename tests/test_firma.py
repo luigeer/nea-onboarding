@@ -218,3 +218,13 @@ check("activamos sus tarjetas" not in m, "ya no promete activar tarjetas el mism
 check("representante comercial se pondrá en contacto" in m,
       "y anuncia que el representante comercial agenda la capacitacion")
 check("Equipo Nea" in m and "Nea Card" not in m, "firma como Equipo Nea")
+
+# La compuerta va al FINAL del archivo. El bloque de mas arriba quedo a media
+# pagina cuando se agregaron pruebas despues de el, y desde entonces todo lo que
+# seguia podia fallar imprimiendo "Todas las pruebas pasaron" y saliendo con
+# codigo 0: la compuerta del proyecto estaba abierta y se veia cerrada.
+print()
+if fallas:
+    print("%d prueba(s) fallaron" % len(fallas))
+    sys.exit(1)
+print("Todas las pruebas pasaron.")
