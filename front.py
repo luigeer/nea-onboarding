@@ -32,10 +32,11 @@ if RAIZ not in sys.path:
 st.set_page_config(page_title="Onboarding Nea", page_icon="◆", layout="wide",
                    initial_sidebar_state="expanded")
 
-CORAL = "#F1654B"
+import tema
 
-VEREDICTO_COLOR = {"Aprobado": "#1B8A5A", "Comité": "#B8860B",
-                   "Rechazado": "#C1372B", "Sin datos suficientes": "#777777"}
+tema.aplicar(st)
+
+CORAL = tema.ACENTO
 
 # Los mismos umbrales que usa el tablero de la terminal. Se importan en vez de
 # repetirse: si mañana cambian, cambian en un solo lugar.
@@ -124,7 +125,9 @@ def _bloqueo_de(folio, fila, cobs):
 # Tablero
 # ─────────────────────────────────────────────────────────────────────────────
 def vista_tablero(filas, cobs):
-    st.markdown("### Tablero")
+    st.markdown("## Tablero")
+    st.caption("Los expedientes reales están a medias: módulos sin datos y "
+               "observaciones abiertas son el estado normal, no el caso de error.")
 
     total = len(filas)
     en_firma = sum(1 for f in filas if f.get("etapa") == "firma")
@@ -133,41 +136,29 @@ def vista_tablero(filas, cobs):
     pendientes = sum(f.get("pendientes_cliente") or 0 for f in filas)
     autorizado = sum(float(f.get("linea_autorizada") or 0) for f in filas)
 
-    c = st.columns(5)
-    c[0].metric("Expedientes", total)
-    c[1].metric("Atorados", len(atorados),
-                help="Llevan más días de lo normal en su etapa")
-    c[2].metric("En firma", en_firma)
-    c[3].metric("Pendientes del cliente", pendientes)
-    c[4].metric("Línea autorizada", _pesos(autorizado))
+    tema.html(st, tema.metricas([
+        tema.metrica("Expedientes", total, "en proceso"),
+        tema.metrica("Atorados", len(atorados), "pasaron el umbral de su etapa",
+                     alerta=bool(atorados)),
+        tema.metrica("En firma", en_firma,
+                     ", ".join(f["folio"] for f in filas
+                               if f.get("etapa") == "firma") or None),
+        tema.metrica("Pendientes del cliente", pendientes, "documentos por recibir"),
+        tema.metrica("Línea autorizada", _pesos(autorizado), "autorizada por comité"),
+    ]))
 
     orden = {e: i for i, e in enumerate(ETAPAS)}
     filas = sorted(filas, key=lambda f: (orden.get(f.get("etapa"), 99),
                                          -(f.get("dias_en_etapa") or 0)))
     st.write("")
-    for f in filas:
-        dias = f.get("dias_en_etapa") or 0
-        atorado = dias >= DIAS_ATORADO.get(f.get("etapa"), 99)
-        bloqueo = _bloqueo_de(f["folio"], f, cobs)
-        score = f.get("score")
-        color = VEREDICTO_COLOR.get(f.get("veredicto"), "#777777")
-
-        col = st.columns([2, 4, 2, 1.4, 2, 5])
-        col[0].markdown("**%s**" % f["folio"])
-        col[1].write((f.get("razon_social") or "")[:44])
-        col[2].write(f.get("etapa") or "—")
-        col[3].markdown(("<span style='color:%s'>%s%d d</span>"
-                         % (CORAL if atorado else "inherit",
-                            "⚠ " if atorado else "", dias)),
-                        unsafe_allow_html=True)
-        if score is None:
-            col[4].write("sin evaluar")
-        else:
-            col[4].markdown("<span style='color:%s'><b>%.4f</b> %s</span>"
-                            % (color, float(score), f.get("veredicto") or ""),
-                            unsafe_allow_html=True)
-        col[5].write(bloqueo or "—")
-        st.divider()
+    st.markdown("### Expedientes")
+    st.caption("Orden del flujo: " + " → ".join(tema.ETAPA_NOMBRE.get(e, e)
+                                                for e in tema.ETAPAS))
+    tema.html(st, tema.tabla_expedientes([
+        tema.fila_expediente(
+            f, _bloqueo_de(f["folio"], f, cobs),
+            (f.get("dias_en_etapa") or 0) >= DIAS_ATORADO.get(f.get("etapa"), 99))
+        for f in filas]))
 
     if atorados:
         st.warning("Atorados: " + ", ".join(
@@ -183,20 +174,41 @@ def vista_cliente(folio, filas, cobs):
     exp = _expediente(folio)
     val = (exp.get("cliente") or {}).get("validado") or {}
 
-    st.markdown("### %s" % (val.get("razon_social") or folio))
-    c = st.columns(4)
-    c[0].metric("Folio", folio)
-    c[1].metric("Etapa", fila.get("etapa") or "—")
-    c[2].metric("Solicitada", _pesos(fila.get("linea_solicitada")))
-    c[3].metric("Autorizada", _pesos(fila.get("linea_autorizada")))
+    st.markdown("## %s" % (val.get("razon_social") or folio))
+
+    # El flujo va arriba y siempre visible: "¿en qué paso voy?" es la pregunta
+    # que hoy obliga a entrar a una pestaña.
+    dias_etapa = fila.get("dias_en_etapa") or 0
+    atorado = dias_etapa >= DIAS_ATORADO.get(fila.get("etapa"), 99)
+    tema.html(st, tema.flujo_etapas(fila.get("etapa")) +
+              '<div class="neaop-row" style="margin-top:10px">%s%s</div>'
+              % (tema.chip_etapa(fila.get("etapa"), atorado),
+                 tema.dias(dias_etapa, atorado)))
+
+    abiertas = [o for o in (exp.get("observaciones") or [])
+                if o.get("estado") == "abierta"]
+    graves = [o for o in abiertas if o.get("severidad") in ("alta", "intermedia")]
+    tema.html(st, tema.metricas([
+        tema.metrica("Folio", folio),
+        tema.metrica("Solicitada", _pesos(fila.get("linea_solicitada"))),
+        tema.metrica("Autorizada", _pesos(fila.get("linea_autorizada")),
+                     "por comité" if fila.get("linea_autorizada") else "sin autorizar",
+                     ausente=not fila.get("linea_autorizada")),
+        tema.metrica("Observaciones abiertas", len(abiertas),
+                     "%d alta(s) o intermedia(s)" % len(graves),
+                     alerta=bool(graves)),
+        tema.metrica("Pendientes del cliente", fila.get("pendientes_cliente") or 0,
+                     "documentos por recibir"),
+    ]))
 
     bloqueo = _bloqueo_de(folio, fila, cobs)
     if bloqueo:
-        st.info("**Qué lo detiene:** %s" % bloqueo)
+        tema.html(st, tema.bloque_detiene(bloqueo))
 
+    # El separador "│" agrupa lo que es expediente de lo que son entregables.
     tabs = st.tabs(["Score", "Perfil", "Observaciones", "Banco y fiscal",
-                    "Documentos", "Historial", "Resumen ejecutivo",
-                    "Alta en la base operativa"])
+                    "Documentos", "Historial",
+                    "│  Resumen ejecutivo", "Alta en la base operativa"])
 
     with tabs[0]:
         _tab_score(folio)
@@ -229,38 +241,20 @@ def _tab_score(folio):
         return
     ev = evals[0]
 
-    c = st.columns(3)
-    score = ev.get("score")
-    c[0].metric("Score", "—" if score is None else "%.4f" % float(score))
-    c[1].metric("Veredicto", ev.get("veredicto") or "—")
-    # El modelo guarda 0 cuando no aprueba, y "$0.00" junto a una línea
-    # autorizada de $50,000 se lee como si hubiera propuesto cero pesos. No
-    # propuso cero: no propuso nada, y la línea la puso el comité.
-    propuesta = float(ev.get("linea_propuesta") or 0)
-    c[2].metric("Línea que propone el modelo",
-                _pesos(propuesta) if propuesta > 0 else "no propone")
+    tema.html(st, tema.score_titular(ev.get("score"), ev.get("veredicto"),
+                                     ev.get("linea_propuesta")))
 
     if ev.get("compuerta_abierta") is False:
         st.error("Este score se corrió con la compuerta de riesgo cerrada. "
                  "No es dictaminable.")
     sin = ev.get("modulos_sin_datos") or []
     if sin:
-        st.warning(
-            "Calculado sobre %d de los 4 módulos. Los pesos de los que faltan se "
-            "repartieron entre los demás, así que **no es comparable** contra un "
-            "score completo. Faltan: %s."
-            % (4 - len(sin), ", ".join(s.replace("_", " ") for s in sin)))
+        tema.html(st, tema.salvedad(sin))
 
-    st.markdown("**Por módulo**")
-    for etiqueta, campo, peso in MODULOS:
-        v = ev.get(campo)
-        col = st.columns([3, 1.2, 6])
-        col[0].write(etiqueta)
-        col[1].write("%.0f%%" % (peso * 100))
-        if v is None:
-            col[2].write("sin datos — sale del promedio")
-        else:
-            col[2].progress(min(1.0, max(0.0, float(v))), text="%.4f" % float(v))
+    st.write("")
+    st.markdown("##### Por módulo")
+    tema.html(st, "".join(tema.modulo(etiqueta, peso, ev.get(campo))
+                          for etiqueta, campo, peso in MODULOS))
 
     detalle = ev.get("detalle") or {}
     variables = detalle.get("variables") or {}
@@ -356,37 +350,33 @@ def _tab_perfil(folio):
         st.caption(pd_["nota"])
 
 
-SEV_COLOR = {"alta": "#C1372B", "intermedia": "#B8860B", "baja": "#777777"}
-
-
 def _tab_observaciones(exp):
+    """Todas las observaciones, ordenadas y abiertas.
+
+    Antes había un filtro por estado con las resueltas apagadas por default.
+    Filtrar obliga a decidir qué leer **antes** de leer, y lo que quedaba fuera
+    era justo lo que explica por qué el expediente está como está. Ahora se
+    ordenan —grave primero, y dentro de cada gravedad las abiertas antes que las
+    aceptadas— y se ven todas. Ordenar no esconde; filtrar sí.
+    """
     obs = exp.get("observaciones") or []
     if not obs:
         st.write("Sin observaciones.")
         return
 
-    estados = ["abierta", "aceptada", "resuelta"]
-    elegidos = st.multiselect("Estado", estados, default=["abierta", "aceptada"])
-    filtradas = [o for o in obs if o.get("estado") in elegidos]
-    st.caption("%d de %d observaciones" % (len(filtradas), len(obs)))
+    peso_sev = {"alta": 0, "intermedia": 1, "baja": 2}
+    peso_est = {"abierta": 0, "aceptada": 1, "resuelta": 2}
+    ordenadas = sorted(obs, key=lambda o: (peso_sev.get(o.get("severidad"), 3),
+                                           peso_est.get(o.get("estado"), 3)))
 
-    for o in sorted(filtradas, key=lambda x: {"alta": 0, "intermedia": 1}.get(
-            x.get("severidad"), 2)):
-        sev = o.get("severidad") or "?"
-        desc = o.get("descripcion") or ""
-        titulo = desc.split(" — ")[0]
-        cuerpo = desc[len(titulo) + 3:] if " — " in desc else ""
-        with st.expander("[%s · %s] %s" % (sev, o.get("estado"), titulo[:90])):
-            if cuerpo:
-                st.write(cuerpo)
-            if o.get("pedir"):
-                st.info("**Se le pide al cliente:** %s" % o["pedir"])
-            if o.get("justificacion"):
-                st.markdown("**Justificación de la aceptación**")
-                st.write(o["justificacion"])
-                st.caption("Firma: %s" % (o.get("aceptada_por") or "sin nombre"))
-            if o.get("resuelta_por"):
-                st.caption("Resuelta: %s" % o["resuelta_por"])
+    cuenta = {}
+    for o in obs:
+        cuenta[o.get("estado")] = cuenta.get(o.get("estado"), 0) + 1
+    st.caption("%d observaciones · %s" % (
+        len(obs), " · ".join("%d %s" % (n, e) for e, n in sorted(cuenta.items(),
+                                                                 key=lambda x: str(x[0])))))
+
+    tema.html(st, "".join(tema.observacion(o) for o in ordenadas))
 
 
 def _tab_banco_fiscal(folio):
@@ -469,7 +459,9 @@ def _tab_resumen(folio):
     ruta = os.path.join(RAIZ, "out", "%s_resumen_ejecutivo.txt" % folio)
     if os.path.exists(ruta):
         with open(ruta, encoding="utf-8") as fh:
-            st.code(fh.read(), language=None)
+            # Como documento y no como bloque de código: es lo que lee el comité.
+            # Ni una palabra del texto generado se edita ni se resume.
+            tema.html(st, tema.documento(fh.read()))
         st.caption("Generado con `python nea.py resumen %s`" % folio)
         return
     if st.button("Generar el resumen ejecutivo ahora"):
@@ -507,31 +499,29 @@ def _tab_alta(folio, exp):
                 st.markdown("- %s" % a)
 
     for s in ad.secciones(exp):
-        st.divider()
+        st.write("")
         if s.get("titulo"):
-            st.markdown("**%s**" % s["titulo"])
-        st.markdown("###### %s" % s["seccion"])
-        for c in s["campos"]:
-            col = st.columns([2, 3])
-            col[0].markdown("%s:" % c["etiqueta"])
-            with col[1]:
-                if c["tipo"] == "sistema":
-                    st.caption(c["valor"])
-                elif c["tipo"] == "checkbox":
-                    st.markdown("**%s**" % ("☑ marcar" if c["valor"]
-                                            else "☐ dejar sin marcar"))
-                elif c["tipo"] == "casillas":
-                    for v in ad.VINCULOS:
-                        st.markdown("%s %s" % ("☑" if v in (c["valor"] or []) else "☐", v))
-                elif c["valor"] in (None, "", []):
-                    st.markdown(":gray[— vacío a propósito —]" if c.get("opcional")
-                                else ":red[FALTA]")
-                else:
-                    st.code(str(c["valor"]), language=None)
-                if c["nota"]:
-                    st.caption(c["nota"])
+            st.markdown("##### %s" % s["titulo"])
+        st.markdown("**%s**" % s["seccion"])
+        # El vocabulario completo de casillas se le pasa al componente; el
+        # formateo vive ahí. Antes se preformateaba aquí y `tema.campo` volvía a
+        # unir la cadena, letra por letra.
+        marcado = [tema.campo(dict(c, opciones=ad.VINCULOS)
+                              if c["tipo"] == "casillas" else c)
+                   for c in s["campos"]]
+        tema.html(st, '<div class="neaop-card neaop-pad">%s</div>' % "".join(marcado))
+        # Los valores copiables van aparte: st.code trae el botón de copiar, que
+        # es el punto de esta pestaña y que el HTML inyectado no puede dar.
+        with st.expander("Copiar los valores de «%s»" % s["seccion"]):
+            for c in s["campos"]:
+                if c["tipo"] in ("sistema", "checkbox", "casillas"):
+                    continue
+                if c["valor"] in (None, "", []):
+                    continue
+                st.caption(c["etiqueta"])
+                st.code(str(c["valor"]), language=None)
 
-    st.divider()
+    st.write("")
     with st.expander("Todo en texto plano"):
         st.code(ad.texto(exp), language=None)
 

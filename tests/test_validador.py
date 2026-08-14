@@ -480,3 +480,20 @@ if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
     sys.exit(1)
 print("Todas las pruebas pasaron.")
+
+# ── un expediente cerrado no tiene bloqueo ───────────────────────────────────
+# El tablero mostraba "esperando autorizacion de la linea" en LLOSA-02, que se
+# cerro como consulta y nunca pidio linea. Un pendiente que no existe en la
+# columna que sirve para decidir que atender hoy.
+print("Bloqueo de un expediente cerrado")
+from nea import _bloqueo
+
+check(_bloqueo({}, {"etapa": "cerrado", "score": 0.71, "veredicto": "Aprobado"}, None)
+      is None,
+      "un expediente cerrado no reporta bloqueo")
+
+print()
+if fallas:
+    print("%d prueba(s) fallaron" % len(fallas))
+    sys.exit(1)
+print("Todas las pruebas pasaron.")

@@ -1,0 +1,262 @@
+/* ============================================================================
+   Nea · Plataforma de onboarding (expedientes / cumplimiento)
+   Portable layer: TODO se declara aquí como variables + clases planas, sin
+   framework de JS, para poder inyectarse en Streamlit con st.markdown(<style>).
+   Regla del producto: esta capa NO define ningún botón de aprobar/autorizar.
+   ========================================================================== */
+:root{
+  /* Acento de la app. El brief define el coral de esta plataforma como #F1654B;
+     el coral del manual de marca es #FF664C. Cambiar esta línea alinea la app. */
+  --app-accent:#F1654B;
+  --app-accent-hover:#D8503A;
+  --app-accent-soft:#FDEDE9;
+  --app-accent-ink:#A8341F;
+
+  /* Superficies y texto (claro) */
+  --app-bg:#F7F7F9;
+  --app-surface:#FFFFFF;
+  --app-surface-2:#F2F2F6;
+  --app-ink:#1E1746;
+  --app-ink-2:#4A4568;
+  --app-ink-3:#6E6B85;
+  --app-line:#E2E1EA;
+  --app-line-strong:#C9C7D6;
+
+  /* --- Veredicto del modelo -------------------------------------------------
+     Cuatro valores. Nunca sólo por tono: cada uno lleva glifo propio y un
+     tratamiento de borde distinto (sólido / doble / sólido / punteado). */
+  --verdict-aprobado-ink:#0F6B44;
+  --verdict-aprobado-bg:#E4F3EC;
+  --verdict-aprobado-line:#1B8A5A;
+  --verdict-comite-ink:#7A5600;
+  --verdict-comite-bg:#FBF1DA;
+  --verdict-comite-line:#B8860B;
+  --verdict-rechazado-ink:#96271C;
+  --verdict-rechazado-bg:#FBE8E5;
+  --verdict-rechazado-line:#C1372B;
+  --verdict-sindatos-ink:#55535F;   /* gris ≠ rojo: la falta de datos no castiga */
+  --verdict-sindatos-bg:#EFEFF2;
+  --verdict-sindatos-line:#8A8894;
+  --verdict-sinevaluar-ink:#55535F;
+  --verdict-sinevaluar-bg:transparent;
+
+  /* --- Severidad de observación -------------------------------------------- */
+  --sev-alta-ink:#96271C;--sev-alta-bg:#FBE8E5;--sev-alta-line:#C1372B;
+  --sev-media-ink:#7A5600;--sev-media-bg:#FBF1DA;--sev-media-line:#B8860B;
+  --sev-baja-ink:#55535F;--sev-baja-bg:#EFEFF2;--sev-baja-line:#8A8894;
+
+  /* --- Estado de observación ----------------------------------------------- */
+  --obs-abierta-ink:#96271C;--obs-abierta-line:#C1372B;
+  --obs-aceptada-ink:#1E1746;--obs-aceptada-line:#1E1746;  /* firmada, no resuelta */
+  --obs-resuelta-ink:#0F6B44;--obs-resuelta-line:#1B8A5A;
+
+  /* --- Etapas (flujo fijo) ------------------------------------------------- */
+  --etapa-ink:#1E1746;--etapa-bg:#ECEBF3;--etapa-line:#C9C7D6;
+  --etapa-done-ink:#0F6B44;--etapa-done-bg:#E4F3EC;
+  --etapa-atorado-ink:#A8341F;--etapa-atorado-bg:#FDEDE9;--etapa-atorado-line:#F1654B;
+
+  /* Datos ausentes: un valor propio, nunca cero y nunca rojo */
+  --missing-ink:#6E6B85;
+  --missing-line:#B9B7C6;
+  --intentional-ink:#55535F;
+
+  /* Forma y ritmo (esta app es densa: escala más apretada que la de marca) */
+  --app-radius-sm:6px;--app-radius:10px;--app-radius-lg:14px;--app-radius-pill:999px;
+  --app-shadow:0 1px 2px rgba(30,23,70,.05),0 2px 8px rgba(30,23,70,.05);
+  --app-shadow-md:0 2px 4px rgba(30,23,70,.04),0 10px 24px rgba(30,23,70,.08);
+  --app-gap:16px;
+  --app-font-display:"Space Grotesk",system-ui,sans-serif;
+  --app-font-body:"Roboto",system-ui,sans-serif;
+  --app-font-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+
+/* Modo oscuro: mismo vocabulario, tonos re-anclados para conservar contraste.
+   Se activa con [data-theme="dark"] en <html> o en cualquier contenedor. */
+[data-theme="dark"]{
+  --app-accent:#FF7B62;
+  --app-accent-hover:#FF9480;
+  --app-accent-soft:#3A211C;
+  --app-accent-ink:#FFB7A6;
+
+  --app-bg:#14121F;
+  --app-surface:#1C1930;
+  --app-surface-2:#241F3A;
+  --app-ink:#F4F3F8;
+  --app-ink-2:#C6C2D8;
+  --app-ink-3:#9E9AB4;
+  --app-line:#332E4C;
+  --app-line-strong:#4A4468;
+
+  --verdict-aprobado-ink:#6FD3A4;--verdict-aprobado-bg:#12352A;--verdict-aprobado-line:#3AA779;
+  --verdict-comite-ink:#F0C560;--verdict-comite-bg:#38300F;--verdict-comite-line:#C79A29;
+  --verdict-rechazado-ink:#FF9385;--verdict-rechazado-bg:#3B1D1B;--verdict-rechazado-line:#CF5748;
+  --verdict-sindatos-ink:#B8B5C6;--verdict-sindatos-bg:#272338;--verdict-sindatos-line:#6E6A85;
+  --verdict-sinevaluar-ink:#B8B5C6;
+
+  --sev-alta-ink:#FF9385;--sev-alta-bg:#3B1D1B;--sev-alta-line:#CF5748;
+  --sev-media-ink:#F0C560;--sev-media-bg:#38300F;--sev-media-line:#C79A29;
+  --sev-baja-ink:#B8B5C6;--sev-baja-bg:#272338;--sev-baja-line:#6E6A85;
+
+  --obs-abierta-ink:#FF9385;--obs-abierta-line:#CF5748;
+  --obs-aceptada-ink:#CFCBE4;--obs-aceptada-line:#8981B3;
+  --obs-resuelta-ink:#6FD3A4;--obs-resuelta-line:#3AA779;
+
+  --etapa-ink:#E7E5F0;--etapa-bg:#2A2542;--etapa-line:#4A4468;
+  --etapa-done-ink:#6FD3A4;--etapa-done-bg:#12352A;
+  --etapa-atorado-ink:#FFB7A6;--etapa-atorado-bg:#3A211C;--etapa-atorado-line:#FF7B62;
+
+  --missing-ink:#9E9AB4;--missing-line:#4A4468;--intentional-ink:#B8B5C6;
+  --app-shadow:0 1px 2px rgba(0,0,0,.4);
+  --app-shadow-md:0 10px 24px rgba(0,0,0,.45);
+}
+
+/* ---------- base de la app ---------- */
+.neaop{background:var(--app-bg);color:var(--app-ink-2);font-family:var(--app-font-body);font-size:14px;line-height:1.5}
+.neaop h1,.neaop h2,.neaop h3,.neaop h4{font-family:var(--app-font-display);color:var(--app-ink);letter-spacing:-.01em;margin:0;font-weight:600}
+.neaop h1{font-size:26px;line-height:1.15}.neaop h2{font-size:19px}.neaop h3{font-size:16px}.neaop h4{font-size:14px}
+.neaop p{margin:0;text-wrap:pretty}
+.neaop a{color:var(--app-accent-ink);text-decoration:none}
+.neaop a:hover{color:var(--app-accent-hover);text-decoration:underline;text-underline-offset:2px}
+.neaop-overline{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--app-ink-3);font-weight:500}
+.neaop-num{font-family:var(--app-font-display);font-variant-numeric:tabular-nums}
+.neaop-mono{font-family:var(--app-font-mono);font-variant-numeric:tabular-nums}
+.neaop-card{background:var(--app-surface);border:1px solid var(--app-line);border-radius:var(--app-radius);box-shadow:var(--app-shadow)}
+.neaop-pad{padding:16px}
+.neaop-note{font-size:12px;color:var(--app-ink-3)}
+.neaop-hr{height:1px;background:var(--app-line);border:0;margin:0}
+
+/* ---------- tarjeta de métrica ---------- */
+.neaop-metric{background:var(--app-surface);border:1px solid var(--app-line);border-radius:var(--app-radius);padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.neaop-metric__label{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--app-ink-3);font-weight:500}
+.neaop-metric__value{font-family:var(--app-font-display);font-size:30px;line-height:1.05;font-weight:600;color:var(--app-ink);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.neaop-metric__value--missing{color:var(--missing-ink);font-size:22px}
+.neaop-metric__foot{font-size:12px;color:var(--app-ink-3)}
+.neaop-metric--alert{border-color:var(--etapa-atorado-line);background:var(--etapa-atorado-bg)}
+.neaop-metric--alert .neaop-metric__value{color:var(--etapa-atorado-ink)}
+
+/* ---------- badges de estado (glifo + color + borde: triple codificación) ---------- */
+.neaop-badge{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;padding:3px 9px;border-radius:var(--app-radius-pill);font-size:12px;font-weight:500;line-height:1.45;white-space:nowrap;border:1px solid transparent}
+.neaop-badge__glyph{font-family:var(--app-font-body);font-size:11px;line-height:1}
+.neaop-badge--aprobado{background:var(--verdict-aprobado-bg);color:var(--verdict-aprobado-ink);border-color:var(--verdict-aprobado-line)}
+.neaop-badge--comite{background:var(--verdict-comite-bg);color:var(--verdict-comite-ink);border-color:var(--verdict-comite-line);border-style:double;border-width:3px;padding:1px 8px}
+.neaop-badge--rechazado{background:var(--verdict-rechazado-bg);color:var(--verdict-rechazado-ink);border-color:var(--verdict-rechazado-line)}
+.neaop-badge--sindatos{background:var(--verdict-sindatos-bg);color:var(--verdict-sindatos-ink);border-color:var(--verdict-sindatos-line);border-style:dashed}
+.neaop-badge--sinevaluar{background:transparent;color:var(--verdict-sinevaluar-ink);border-color:var(--app-line-strong);border-style:dotted}
+
+.neaop-sev{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;padding:2px 9px;border-radius:var(--app-radius-sm);font-size:12px;font-weight:500;border:1px solid transparent;white-space:nowrap}
+.neaop-sev--alta{background:var(--sev-alta-bg);color:var(--sev-alta-ink);border-color:var(--sev-alta-line);border-left-width:4px}
+.neaop-sev--intermedia{background:var(--sev-media-bg);color:var(--sev-media-ink);border-color:var(--sev-media-line);border-left-width:4px;border-left-style:double}
+.neaop-sev--baja{background:var(--sev-baja-bg);color:var(--sev-baja-ink);border-color:var(--sev-baja-line);border-style:dotted}
+
+.neaop-estado{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;white-space:nowrap;font-size:12px;font-weight:500;padding:2px 9px;border-radius:var(--app-radius-pill);border:1px solid}
+.neaop-estado--abierta{color:var(--obs-abierta-ink);border-color:var(--obs-abierta-line);background:transparent}
+.neaop-estado--aceptada{color:var(--obs-aceptada-ink);border-color:var(--obs-aceptada-line);background:transparent}
+.neaop-estado--resuelta{color:var(--obs-resuelta-ink);border-color:var(--obs-resuelta-line);background:transparent}
+
+/* ---------- chip de etapa + flujo ---------- */
+.neaop-etapa{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:var(--app-radius-pill);background:var(--etapa-bg);color:var(--etapa-ink);border:1px solid var(--etapa-line);font-size:12px;font-weight:500;white-space:nowrap}
+.neaop-etapa--atorado{background:var(--etapa-atorado-bg);color:var(--etapa-atorado-ink);border-color:var(--etapa-atorado-line)}
+.neaop-etapa__ord{font-family:var(--app-font-mono);font-size:10px;opacity:.75}
+.neaop-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.neaop-flow__step{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;font-size:12px;line-height:1.35;white-space:nowrap;border-radius:var(--app-radius-pill);border:1px solid var(--app-line);color:var(--app-ink-3);background:var(--app-surface)}
+.neaop-flow__step--done{background:var(--etapa-done-bg);color:var(--etapa-done-ink);border-color:var(--verdict-aprobado-line)}
+.neaop-flow__step--current{background:var(--etapa-atorado-bg);color:var(--etapa-atorado-ink);border-color:var(--etapa-atorado-line);font-weight:500}
+.neaop-flow__sep{color:var(--app-line-strong);font-size:12px}
+
+/* ---------- días en etapa ---------- */
+.neaop-dias{font-family:var(--app-font-display);font-variant-numeric:tabular-nums;font-size:13px;color:var(--app-ink-2)}
+.neaop-dias--atorado{color:var(--etapa-atorado-ink);font-weight:600}
+.neaop-dias--atorado::after{content:" \25B2 atorado";font-family:var(--app-font-body);font-size:11px;font-weight:500}
+
+/* ---------- tabla / renglón de expediente ---------- */
+.neaop-table{width:100%;border-collapse:collapse;background:var(--app-surface);border:1px solid var(--app-line);border-radius:var(--app-radius);overflow:hidden}
+.neaop-table th{text-align:left;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--app-ink-3);font-weight:500;padding:10px 14px;background:var(--app-surface-2);border-bottom:1px solid var(--app-line);white-space:nowrap}
+.neaop-table td{padding:13px 14px;border-bottom:1px solid var(--app-line);vertical-align:middle;font-size:13.5px;color:var(--app-ink-2)}
+.neaop-table tr:last-child td{border-bottom:0}
+.neaop-table tr:hover td{background:var(--app-surface-2)}
+.neaop-table .neaop-folio{font-family:var(--app-font-mono);font-size:12.5px;color:var(--app-ink-3)}
+.neaop-table .neaop-razon{color:var(--app-ink);font-weight:500}
+.neaop-table td.neaop-right{text-align:right}
+.neaop-detiene{color:var(--app-ink-2)}
+.neaop-detiene--none{color:var(--app-ink-3)}
+
+/* ---------- score ---------- */
+.neaop-score{display:flex;align-items:baseline;gap:12px}
+.neaop-score__value{font-family:var(--app-font-display);font-size:52px;line-height:1;font-weight:600;letter-spacing:-.03em;color:var(--app-ink);font-variant-numeric:tabular-nums}
+.neaop-score__scale{font-family:var(--app-font-mono);font-size:13px;color:var(--app-ink-3)}
+.neaop-caveat{display:flex;gap:10px;padding:12px 14px;border-radius:var(--app-radius-sm);background:var(--verdict-comite-bg);border:1px solid var(--verdict-comite-line);color:var(--verdict-comite-ink);font-size:13px}
+.neaop-caveat__glyph{font-size:13px;line-height:1.5}
+.neaop-caveat strong{font-weight:600}
+.neaop-caveat--neutral{background:var(--verdict-sindatos-bg);border-color:var(--verdict-sindatos-line);border-style:dashed;color:var(--verdict-sindatos-ink)}
+
+/* ---------- barra de módulo ---------- */
+.neaop-modulo{display:grid;grid-template-columns:1fr 64px;gap:6px 12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--app-line)}
+.neaop-modulo:last-child{border-bottom:0}
+.neaop-modulo__name{font-size:13.5px;color:var(--app-ink);font-weight:500}
+.neaop-modulo__peso{font-family:var(--app-font-mono);font-size:11.5px;color:var(--app-ink-3)}
+.neaop-modulo__score{font-family:var(--app-font-display);font-size:15px;font-weight:600;text-align:right;color:var(--app-ink);font-variant-numeric:tabular-nums}
+.neaop-modulo__track{grid-column:1 / -1;height:7px;border-radius:var(--app-radius-pill);background:var(--app-surface-2);border:1px solid var(--app-line);overflow:hidden}
+.neaop-modulo__fill{height:100%;background:var(--app-accent)}
+.neaop-modulo--sindatos .neaop-modulo__track{background:repeating-linear-gradient(135deg,var(--app-surface-2) 0 6px,transparent 6px 12px);border-style:dashed;border-color:var(--missing-line)}
+.neaop-modulo--sindatos .neaop-modulo__score{font-family:var(--app-font-body);font-size:12px;font-weight:500;color:var(--missing-ink)}
+.neaop-modulo--sindatos .neaop-modulo__name{color:var(--app-ink-2)}
+.neaop-modulo__redistrib{grid-column:1 / -1;font-size:11.5px;color:var(--missing-ink)}
+
+/* ---------- observación ---------- */
+.neaop-obs{background:var(--app-surface);border:1px solid var(--app-line);border-radius:var(--app-radius);overflow:hidden}
+.neaop-obs + .neaop-obs{margin-top:12px}
+.neaop-obs__bar{width:100%;height:3px}
+.neaop-obs--alta .neaop-obs__bar{background:var(--sev-alta-line)}
+.neaop-obs--intermedia .neaop-obs__bar{background:repeating-linear-gradient(90deg,var(--sev-media-line) 0 8px,transparent 8px 14px)}
+.neaop-obs--baja .neaop-obs__bar{background:repeating-linear-gradient(90deg,var(--sev-baja-line) 0 2px,transparent 2px 6px)}
+.neaop-obs__head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px 0}
+.neaop-obs__title{flex:1 1 320px;min-width:0;font-family:var(--app-font-display);font-size:15.5px;font-weight:600;color:var(--app-ink)}
+.neaop-obs__body{padding:10px 16px 0;font-size:13.5px;color:var(--app-ink-2);max-width:78ch}
+.neaop-obs__just{margin:14px;padding:14px 16px;border-radius:var(--app-radius-sm);background:var(--app-surface-2);border:1px solid var(--app-line);border-left:3px solid var(--obs-aceptada-line)}
+.neaop-obs__just-label{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--app-ink-3);font-weight:500;margin-bottom:6px}
+.neaop-obs__just-text{font-size:13.5px;color:var(--app-ink);max-width:78ch}
+.neaop-obs__sign{margin-top:12px;padding-top:10px;border-top:1px solid var(--app-line);font-size:12px;color:var(--app-ink-2);display:flex;flex-wrap:wrap;gap:6px 16px}
+.neaop-obs__sign b{font-weight:600;color:var(--app-ink)}
+.neaop-obs__meta{padding:12px 16px 14px;font-size:11.5px;color:var(--app-ink-3);display:flex;gap:16px;flex-wrap:wrap}
+
+/* ---------- campo copiable (3 estados) ---------- */
+.neaop-field{display:grid;grid-template-columns:230px 1fr;gap:4px 16px;padding:12px 0;border-bottom:1px solid var(--app-line)}
+.neaop-field:last-child{border-bottom:0}
+.neaop-field__label{font-size:13px;color:var(--app-ink-2)}
+.neaop-field__value{display:flex;align-items:center;gap:10px;min-width:0}
+.neaop-field__box{flex:1 1 auto;min-width:0;font-family:var(--app-font-mono);font-size:13px;color:var(--app-ink);background:var(--app-surface-2);border:1px solid var(--app-line);border-radius:var(--app-radius-sm);padding:7px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.neaop-field__copy{flex:0 0 auto;width:30px;height:30px;display:inline-grid;place-items:center;border:1px solid var(--app-line-strong);border-radius:var(--app-radius-sm);background:var(--app-surface);color:var(--app-ink-2);font-size:13px;cursor:pointer}
+.neaop-field__copy:hover{background:var(--app-surface-2);border-color:var(--app-ink-3)}
+.neaop-field__note{grid-column:2;font-size:11.5px;color:var(--app-ink-3);max-width:70ch}
+.neaop-field--falta .neaop-field__box{background:var(--sev-alta-bg);border-color:var(--sev-alta-line);color:var(--sev-alta-ink);font-family:var(--app-font-body);font-weight:600;letter-spacing:.04em}
+.neaop-field--vacio .neaop-field__box{background:transparent;border-style:dashed;border-color:var(--missing-line);color:var(--intentional-ink);font-family:var(--app-font-body);font-style:italic}
+.neaop-field--vacio .neaop-field__copy{opacity:.4;cursor:not-allowed}
+
+/* ---------- pestañas (portables: radio + label, sin JS) ---------- */
+.neaop-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--app-line)}
+.neaop .neaop-tab{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;font-size:13.5px;color:var(--app-ink-3);border:1px solid transparent;border-bottom:0;border-radius:var(--app-radius-sm) var(--app-radius-sm) 0 0;cursor:pointer;background:transparent;text-decoration:none}
+.neaop .neaop-tab:hover{color:var(--app-ink);background:var(--app-surface-2);text-decoration:none}
+.neaop-tab--current{color:var(--app-ink);background:var(--app-surface);border-color:var(--app-line);font-weight:500;box-shadow:inset 0 2px 0 var(--app-accent)}
+.neaop-tab__count{font-family:var(--app-font-mono);font-size:11px;color:var(--app-ink-3)}
+
+/* ---------- banda "qué lo detiene" ---------- */
+.neaop-block{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--app-radius);background:var(--etapa-atorado-bg);border:1px solid var(--etapa-atorado-line);color:var(--etapa-atorado-ink)}
+.neaop-block__label{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+.neaop-block__text{font-size:14px;color:var(--app-ink)}
+
+/* ---------- documento de texto (resumen ejecutivo) ---------- */
+.neaop-doc{font-family:var(--app-font-mono);font-size:12.5px;line-height:1.7;white-space:pre-wrap;color:var(--app-ink-2);background:var(--app-surface);border:1px solid var(--app-line);border-radius:var(--app-radius);padding:20px 22px;max-width:96ch}
+
+/* ---------- layout de la app ---------- */
+.neaop-shell{display:flex;min-height:100vh;background:var(--app-bg)}
+.neaop-side{width:264px;flex:0 0 auto;background:var(--app-surface);border-right:1px solid var(--app-line);padding:18px 14px;display:flex;flex-direction:column;gap:18px}
+.neaop .neaop-side__item{display:flex;flex-direction:column;gap:3px;padding:9px 11px;border-radius:var(--app-radius-sm);color:var(--app-ink-2);font-size:13.5px;text-decoration:none;border:1px solid transparent}
+.neaop .neaop-side__item:hover{background:var(--app-surface-2);text-decoration:none;color:var(--app-ink)}
+.neaop-side__item--current{background:var(--app-accent-soft);border-color:var(--app-accent);color:var(--app-ink);font-weight:500}
+.neaop-side__folio{font-family:var(--app-font-mono);font-size:11px;color:var(--app-ink-3)}
+.neaop-main{flex:1;min-width:0;padding:26px 30px 48px;display:flex;flex-direction:column;gap:22px}
+.neaop-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.neaop-stack{display:flex;flex-direction:column;gap:14px}
+.neaop-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.neaop-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.neaop-grid-2{grid-template-columns:1fr}.neaop-side{display:none}}

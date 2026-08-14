@@ -889,6 +889,13 @@ def _bloqueo(exp, fila, cobertura):
     import validador
     from schema_expediente import compuertas_generacion
 
+    # Un expediente cerrado no lo detiene nada: ya no avanza. Decir "esperando
+    # autorizacion de la linea" de uno que se cerro sin pedirla —el obligado
+    # solidario que se evaluo aparte— es reportar un pendiente que no existe, y
+    # eso ensucia justo la columna que sirve para decidir que atender hoy.
+    if fila.get("etapa") == "cerrado":
+        return None
+
     r = validador.revisar(exp, cobertura=cobertura)
 
     if not r.puede_pasar_a_riesgo:
