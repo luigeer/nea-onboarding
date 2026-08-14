@@ -26,6 +26,7 @@ pantalla ni ejecutarse.
 """
 
 import os
+import re
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 CSS = os.path.join(RAIZ, "assets", "diseno", "onboarding.css")
@@ -73,6 +74,20 @@ def esc(t):
     s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     s = s.replace('"', "&quot;")
     return s.replace("\n", "<br>")
+
+
+def _con_enlaces(t):
+    """Escapa el texto y convierte las URL en enlaces que se puedan abrir.
+
+    Los campos de archivo del alta traen la liga del documento en Drive. Como
+    texto plano no sirven de nada: el punto de tenerlas es abrir el papel y
+    subirlo. Se escapa primero y se enlaza después, para que un `<` en el texto
+    siga sin poder inyectar marcado.
+    """
+    escapado = esc(t)
+    return re.sub(r"(https://[^\s<]+)",
+                  r'<a href="\1" target="_blank" rel="noopener">abrir en Drive ↗</a>',
+                  escapado)
 
 
 def pesos(v):
@@ -126,7 +141,16 @@ _PUENTE_STREAMLIT = """
 /* ── puente Streamlit ─────────────────────────────────────────────────── */
 :root{--app-accent:%(acento)s;--app-accent-hover:%(hover)s;
       --app-accent-soft:%(suave)s;--app-accent-ink:%(tinta)s;}
-html, body, [class*="st-"], .stApp{font-family:var(--app-font-body)}
+/* Sin `[class*="st-"]`: ese selector agarra TODAS las clases de Streamlit,
+   incluidas las de los iconos. Los iconos son una fuente de ligaduras —el
+   elemento contiene literalmente el texto "keyboard_double_arrow_right" y la
+   fuente lo dibuja como flecha—, asi que al cambiarles la tipografia el nombre
+   se imprime encima del boton. Se pone la fuente en el contenedor y se hereda. */
+html, body, .stApp{font-family:var(--app-font-body)}
+/* Y se le devuelve la suya a los iconos, por si algo mas los alcanza. */
+[data-testid="stIconMaterial"], .material-icons, .material-icons-outlined,
+.material-symbols-rounded, span[class*="material-symbols"]{
+font-family:"Material Symbols Rounded","Material Icons"!important}
 .stApp{background:var(--app-bg)}
 .block-container{padding-top:2.2rem;max-width:1320px}
 /* Con `h2` a secas no alcanza: los encabezados que dibuja Streamlit vienen con
@@ -406,7 +430,12 @@ def campo(c):
     if tipo == "checkbox":
         texto = "☑ marcar" if valor else "☐ dejar sin marcar"
     elif tipo == "casillas":
-        texto = "; ".join(valor) if valor else "ninguno"
+        # Se dibujan todas las opciones, marcadas y sin marcar. El formulario del
+        # Django las muestra completas y lo que hay que ver es cuáles NO van: una
+        # lista de solo las marcadas obliga a comparar contra la pantalla.
+        marcadas = valor or []
+        texto = "   ".join("%s %s" % ("☑" if o in marcadas else "☐", o)
+                           for o in (c.get("opciones") or marcadas))
     elif tipo == "sistema":
         mod, texto = " neaop-field--vacio", str(valor or "")
     elif valor in (None, "", []):
@@ -417,7 +446,7 @@ def campo(c):
     else:
         texto = str(valor)
 
-    nota_html = ('<span class="neaop-field__note">%s</span>' % esc(nota)) if nota else ""
+    nota_html = ('<span class="neaop-field__note">%s</span>' % _con_enlaces(nota)) if nota else ""
     return ('<div class="neaop-field%s"><span class="neaop-field__label">%s</span>'
             '<span class="neaop-field__value">'
             '<span class="neaop-field__box">%s</span></span>%s</div>'

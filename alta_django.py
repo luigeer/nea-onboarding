@@ -519,14 +519,13 @@ def secciones(exp):
         s["titulo"] = "BENEFICIARIOS CONTROLADORES" if i == 1 else None
         # El formato de identificación del BC es uno solo para toda la empresa y
         # ya va firmado: se sube el mismo archivo en los dos beneficiarios.
-        div = _division_firmada(exp, "Beneficiario Controlador")
-        s["campos"].insert(-1, _campo(
-            "Formato de Identificación del BC",
-            "División %s del paquete firmado (%s páginas)" % (div["division"], div["paginas"])
-            if div else None, "archivo",
-            "Es el PDF firmado que está en Drive, carpeta «4 Documentos firmados». "
-            "El mismo archivo para los dos beneficiarios: el formato es uno por empresa."
-            if div else "El formato de BC no está firmado todavía."))
+        bc = _archivo(exp, "Formato de Identificación del BC",
+                      ["formato_bc_firmado", "formato_bc"],
+                      nota="El formato de BC no está firmado todavía.")
+        if bc["valor"] and bc["nota"]:
+            bc["nota"] += (" El mismo archivo para los dos beneficiarios: "
+                           "el formato es uno por empresa.")
+        s["campos"].insert(-1, bc)
         out.append(s)
     return out
 

@@ -128,12 +128,46 @@ c = tema.campo({"etiqueta": "Teléfono", "valor": None, "tipo": "texto",
                 "nota": None, "opcional": False})
 check("neaop-field--falta" in c and "FALTA" in c, "sin valor y obligatorio: FALTA")
 
+# La liga del documento en Drive tiene que poderse abrir: como texto plano no
+# sirve de nada, y el punto de tenerla es abrir el papel para subirlo.
+c = tema.campo({"etiqueta": "CSF", "valor": "CSF_Empresa.pdf", "tipo": "archivo",
+                "nota": "https://drive.google.com/file/d/abc123/view"})
+check('<a href="https://drive.google.com/file/d/abc123/view"' in c,
+      "una URL en la nota se vuelve un enlace")
+check('target="_blank"' in c and 'rel="noopener"' in c,
+      "se abre en otra pestaña y sin darle acceso a esta")
+
+# Y el escapado se aplica ANTES de enlazar: un texto con < no puede colarse.
+c = tema.campo({"etiqueta": "X", "valor": "v", "tipo": "archivo",
+                "nota": '<b>ojo</b> https://drive.google.com/d/1/view'})
+check("&lt;b&gt;ojo&lt;/b&gt;" in c, "el texto de la nota sigue escapandose")
+check(c.count("<a href") == 1, "y la URL sigue enlazandose")
+
 c = tema.campo({"etiqueta": "Logo", "valor": None, "tipo": "archivo",
                 "nota": "No se pide.", "opcional": True})
 check("neaop-field--vacio" in c, "sin valor pero opcional: vacio a proposito")
 check("FALTA" not in c,
       "y NUNCA dice FALTA: es una decision, no trabajo pendiente")
 check("No se pide." in c, "con el motivo a la vista, que es lo que lo hace decision")
+
+# Las casillas se dibujan TODAS, marcadas y sin marcar: el formulario del Django
+# las muestra completas y hay que ver cuales NO van. Salio en pantalla como
+# "☑; ; P; a; r; t; i..." porque llegaba una cadena ya formateada y se volvia a
+# unir caracter por caracter.
+OPCIONES = ["Participación en el capital", "Derechos de voto", "Otro medio"]
+c = tema.campo({"etiqueta": "Vínculos", "valor": ["Derechos de voto"],
+                "tipo": "casillas", "opciones": OPCIONES, "nota": None})
+check("☑ Derechos de voto" in c, "la opcion marcada lleva casilla llena")
+check("☐ Participación en el capital" in c and "☐ Otro medio" in c,
+      "y las no marcadas se dibujan igual, vacias: hay que ver cuales NO van")
+check("; P; a; r" not in c,
+      "no se parte en letras: llegaba una cadena y se unia caracter por caracter")
+
+c = tema.campo({"etiqueta": "Vínculos", "valor": [], "tipo": "casillas",
+                "opciones": OPCIONES, "nota": None})
+check(c.count("☐") == 3 and "☑" not in c, "sin ninguna marcada salen las tres vacias")
+check("FALTA" not in c,
+      "y una lista vacia de casillas no es un dato faltante: es que no aplica ninguna")
 
 # ── el score y su salvedad ───────────────────────────────────────────────────
 print("Score")

@@ -503,16 +503,12 @@ def _tab_alta(folio, exp):
         if s.get("titulo"):
             st.markdown("##### %s" % s["titulo"])
         st.markdown("**%s**" % s["seccion"])
-        # Las casillas de vínculos se dibujan completas —marcadas y sin marcar—
-        # porque el formulario del Django las muestra todas y hay que ver cuáles
-        # NO van.
-        marcado = []
-        for c in s["campos"]:
-            if c["tipo"] == "casillas":
-                c = dict(c, valor=" ".join(
-                    "%s %s" % ("☑" if v in (c["valor"] or []) else "☐", v)
-                    for v in ad.VINCULOS))
-            marcado.append(tema.campo(c))
+        # El vocabulario completo de casillas se le pasa al componente; el
+        # formateo vive ahí. Antes se preformateaba aquí y `tema.campo` volvía a
+        # unir la cadena, letra por letra.
+        marcado = [tema.campo(dict(c, opciones=ad.VINCULOS)
+                              if c["tipo"] == "casillas" else c)
+                   for c in s["campos"]]
         tema.html(st, '<div class="neaop-card neaop-pad">%s</div>' % "".join(marcado))
         # Los valores copiables van aparte: st.code trae el botón de copiar, que
         # es el punto de esta pestaña y que el HTML inyectado no puede dar.
