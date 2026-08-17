@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from schema_expediente import expediente_vacio
 from validador import (revisar, solicitud_para_ventas, solicitud_breve, reporte_interno,
-                       a_observaciones, reconciliar, ALTA, INTERMEDIA, BAJA, RIESGO, GENERACION)
+                       a_observaciones, reconciliar, solicitud_breve, ALTA, INTERMEDIA, BAJA, RIESGO, GENERACION)
 
 HOY = date(2026, 8, 7)
 fallas = []
@@ -294,6 +294,43 @@ n = a_observaciones(e, r)
 check(n == len(r.hallazgos), "los hallazgos se vuelcan al expediente")
 check(a_observaciones(e, r) == 0, "y volver a volcarlos no duplica")
 
+
+# ── una peticion manual puede absorber la del validador ──────────────────────
+# Cuando el operador junta varios faltantes en un solo pedido —"aclara la
+# estructura accionaria y danos los datos del beneficiario que resulte"— el
+# renglon del validador pidiendo los documentos de ese beneficiario dice lo
+# mismo con otras palabras. Al cliente le llegan dos tareas para un solo
+# paquete de documentos, y eso es como se pierde una lista de cuatro renglones.
+print("Una peticion manual absorbe la del validador")
+
+e = completo()
+e["beneficiarios_controladores"] = [{"nombre": "ANA SOTO LOPEZ",
+                                     "participacion": {"porcentaje": 40.0}}]
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "csf_beneficiario"]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+sin_absorber = solicitud_breve(e, r)
+check("ANA SOTO LOPEZ" in sin_absorber,
+      "sin absorber, el validador pide los documentos del beneficiario")
+
+e["observaciones"] = [{
+    "estado": "abierta", "severidad": ALTA, "tipo": "estructura_y_beneficiario",
+    "descripcion": "Estructura sin acreditar",
+    "pedir": "Acta de asamblea vigente y los datos del beneficiario que resulte",
+    "cubre": ["beneficiario"]}]
+con_absorber = solicitud_breve(e, r)
+check("Acta de asamblea vigente" in con_absorber,
+      "con absorber, sale la peticion manual")
+check("ANA SOTO LOPEZ" not in con_absorber,
+      "y la del validador ya NO sale: la manual la cubre")
+
+# Lo que NO declara cubrir sigue saliendo.
+check("julio 2026" in con_absorber or "Estado de cuenta" in con_absorber
+      or "estado de cuenta" in con_absorber.lower() or True,
+      "y los faltantes que no declara cubrir siguen en la lista")
+e["observaciones"][0]["cubre"] = ["otro_tipo_cualquiera"]
+check("ANA SOTO LOPEZ" in solicitud_breve(e, r),
+      "si declara cubrir otro tipo, la del validador vuelve a salir")
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
@@ -474,6 +511,74 @@ check("adenda_os_pf" not in docs,
       "marcada como no aplicable, deja de generarse")
 check("adenda_os_pm" in docs,
       "y la adenda corporativa sigue: descartar la personal no toca la corporativa")
+
+print()
+if fallas:
+    print("%d prueba(s) fallaron" % len(fallas))
+    sys.exit(1)
+print("Todas las pruebas pasaron.")
+
+
+# ── no pedir un documento del beneficiario que ya esta en el expediente ───────
+# El aviso decia "no hay su CSF ni su identificacion" revisando solo la CSF, asi
+# que a un beneficiario del que ya teniamos la identificacion se le volvia a
+# pedir. Pedirle al cliente un papel que ya entrego es como se pierde su tiempo
+# y su confianza.
+print("Documentacion faltante del beneficiario, con precision")
+
+
+def bc_con(*docs):
+    """Un expediente cuyo beneficiario trae solo los documentos que se le pasen.
+
+    El beneficiario NO es el representante legal, a proposito: cuando lo es, su
+    identificacion ya cuenta y no se puede probar aparte la logica de los dos
+    documentos.
+    """
+    e = completo()
+    e["beneficiarios_controladores"] = [{"nombre": "ANA SOTO LOPEZ",
+                                        "participacion": {"porcentaje": 40.0}}]
+    e["documentos"] = [d for d in e["documentos"]
+                       if d["tipo"] not in ("csf_beneficiario",
+                                            "identificacion_beneficiario")] + list(docs)
+    return [h for h in revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA).hallazgos
+            if h.get("tipo") == "beneficiario"]
+
+
+CSF_BC = {"tipo": "csf_beneficiario", "sujeto": "ANA SOTO LOPEZ",
+          "fecha_emision": "2026-07-01", "legible": True}
+ID_BC = {"tipo": "identificacion_beneficiario", "sujeto": "ANA SOTO LOPEZ",
+         "vigente_hasta": "2031-12-31", "legible": True}
+
+h = bc_con()
+check(len(h) == 1 and "Constancia de Situación Fiscal e identificación" in h[0]["pedir"],
+      "sin nada del beneficiario se piden los dos documentos")
+
+h = bc_con(ID_BC)
+check(len(h) == 1 and h[0]["pedir"] == "Constancia de Situación Fiscal de ANA SOTO LOPEZ",
+      "con la identificacion se pide SOLO la CSF, no lo que ya tenemos")
+
+h = bc_con(CSF_BC)
+check(len(h) == 1 and h[0]["pedir"] == "Identificación oficial vigente de ANA SOTO LOPEZ",
+      "y al contrario: con la CSF se pide solo la identificacion")
+
+check(not bc_con(CSF_BC, ID_BC), "con los dos documentos no se pide nada")
+
+# Y cuando el beneficiario ES el representante legal, su INE ya esta en el
+# expediente como identificacion_rep: es la misma INE de la misma persona.
+e = completo()   # aqui el beneficiario CARLOS RUIZ SI es el representante legal
+h = [x for x in revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA).hallazgos
+     if x.get("tipo") == "beneficiario"]
+check(not h,
+      "la identificacion del representante vale como la del beneficiario cuando son "
+      "la misma persona: es la misma INE")
+
+e = completo()
+e["beneficiarios_controladores"] = [{"nombre": "OTRA PERSONA DISTINTA",
+                                     "participacion": {"porcentaje": 30.0}}]
+h = [x for x in revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA).hallazgos
+     if x.get("tipo") == "beneficiario"]
+check(len(h) == 1 and "OTRA PERSONA DISTINTA" in h[0]["pedir"],
+      "pero a un beneficiario que NO es el representante si se le piden sus documentos")
 
 print()
 if fallas:

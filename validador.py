@@ -384,18 +384,50 @@ def _coherencia(exp, r):
                  "misma." % os_rfc, tipo="coherencia")
 
     # Beneficiarios declarados sin su documentación.
+    # Se revisan los dos tipos por separado y se pide solo el que falta. Antes
+    # esto miraba nada más la CSF y avisaba "no hay su CSF ni su identificación",
+    # así que a un beneficiario cuya identificación ya estaba en el expediente se
+    # le volvía a pedir. Pedirle al cliente un papel que ya entregó le hace
+    # perder tiempo y nos cuesta credibilidad en lo que sí falta.
     presentes = _documentos_por_tipo(exp)
-    csfs = {(d.get("sujeto") or "").upper() for d in presentes.get("csf_beneficiario", [])}
+
+    def sujetos_de(tipo):
+        return {(d.get("sujeto") or "").upper()
+                for d in presentes.get(tipo, []) if not d.get("superado_por")}
+
+    csfs = sujetos_de("csf_beneficiario")
+    ids = sujetos_de("identificacion_beneficiario")
+    # Cuando el beneficiario controlador ES el representante legal —el caso más
+    # común en una empresa familiar—, su identificación ya está en el expediente
+    # como `identificacion_rep`. Es la misma INE de la misma persona: pedirla otra
+    # vez con otro nombre de tipo no acredita nada nuevo.
+    rep = (_get(exp, "representante_legal.validado.nombre") or "").upper()
+    if rep and presentes.get("identificacion_rep"):
+        ids.add(rep)
+
     for b in _get(exp, "beneficiarios_controladores", []):
         nombre = b.get("nombre")
-        if nombre and nombre.upper() not in csfs:
-            r.anotar(INTERMEDIA,
-                     "Falta documentación del beneficiario %s" % nombre,
-                     "Está identificado como beneficiario controlador pero no hay "
-                     "su CSF ni su identificación.",
-                     pedir=("Constancia de Situación Fiscal e identificación oficial "
-                            "vigente de %s" % nombre),
-                     tipo="beneficiario", bloquea=(GENERACION,))
+        if not nombre:
+            continue
+        arriba = nombre.upper()
+        falta_csf = arriba not in csfs
+        falta_id = arriba not in ids
+        if not (falta_csf or falta_id):
+            continue
+        if falta_csf and falta_id:
+            pedir = ("Constancia de Situación Fiscal e identificación oficial "
+                     "vigente de %s" % nombre)
+            detalle = "no hay su CSF ni su identificación"
+        elif falta_csf:
+            pedir = "Constancia de Situación Fiscal de %s" % nombre
+            detalle = "su identificación ya está en el expediente; falta su CSF"
+        else:
+            pedir = "Identificación oficial vigente de %s" % nombre
+            detalle = "su CSF ya está en el expediente; falta su identificación"
+        r.anotar(INTERMEDIA,
+                 "Falta documentación del beneficiario %s" % nombre,
+                 "Está identificado como beneficiario controlador pero %s." % detalle,
+                 pedir=pedir, tipo="beneficiario", bloquea=(GENERACION,))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -808,10 +840,20 @@ def solicitud_breve(exp, r):
     # Una observación capturada a mano puede pedir algo —un acta de asamblea que
     # solo se descubre comparando el buró contra el acta constitutiva— y tiene
     # que salir en esta misma lista, no en un correo aparte.
+    abiertas = [o for o in _get(exp, "observaciones", [])
+                if o.get("estado") == "abierta" and o.get("pedir")]
     manuales = [{"pedir": o["pedir"], "gravedad": o.get("severidad", INTERMEDIA),
                  "sujeto": o.get("sujeto"), "asunto": ""}
-                for o in _get(exp, "observaciones", [])
-                if o.get("estado") == "abierta" and o.get("pedir")]
+                for o in abiertas]
+
+    # Una observación manual puede declarar en `cubre` los tipos de hallazgo que
+    # su petición ya incluye. Cuando el operador junta varios faltantes en un
+    # solo pedido —"aclara la estructura accionaria y danos los datos del
+    # beneficiario que resulte"— el renglón del validador pidiendo los documentos
+    # de ese beneficiario dice lo mismo con otras palabras, y al cliente le
+    # llegan dos tareas para un solo paquete. Solo suprime en esta lista: el
+    # hallazgo sigue existiendo y sigue bloqueando lo que bloquee.
+    cubiertos = {t for o in abiertas for t in (o.get("cubre") or [])}
 
     if r.aprobado and not manuales:
         return "%s — no falta documentación." % razon
@@ -822,6 +864,8 @@ def solicitud_breve(exp, r):
     for h in sorted(r.hallazgos + manuales,
                     key=lambda x: ORDEN.get(x["gravedad"], 1)):
         if not h.get("pedir") or h["gravedad"] == BAJA:
+            continue
+        if h.get("tipo") in cubiertos:
             continue
         texto = str(h["pedir"]).splitlines()[0]
         if texto in vistos:
