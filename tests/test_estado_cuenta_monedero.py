@@ -141,6 +141,14 @@ check(abs(agregado_compartido[("OTR050101ABC", "9999999")]["importe"] - 200.00) 
       "importe del nuevo par es independiente: %r" % agregado_compartido[("OTR050101ABC", "9999999")]["importe"])
 
 
+# ── _partes_nombre(): RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.pdf ─────────────────
+check(ecm._partes_nombre("LOG150312XX3_EFE8908015L3_2026-06.pdf") ==
+      ("LOG150312XX3", "EFE8908015L3", "2026-06"),
+      "separa las tres partes del nombre de archivo")
+check(ecm._partes_nombre("nombre-que-no-calza.pdf") is None,
+      "un nombre que no sigue la convención regresa None, no truena")
+
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))

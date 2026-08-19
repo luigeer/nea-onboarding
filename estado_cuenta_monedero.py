@@ -27,6 +27,8 @@ sospechoso en vez de usarse a medias, mismo principio que ya usa
 `bbva.cuadra()` para los estados de cuenta bancarios.
 """
 
+import glob
+import os
 import re
 
 import pdfplumber
@@ -135,3 +137,78 @@ def leer_pdf(ruta):
                 resumen = _resumen_cuenta(tablas)
             cargos.extend(_cargos(tablas))
     return {"encabezado": encabezado, "resumen": resumen, "cargos": cargos}
+
+
+def _partes_nombre(nombre_archivo):
+    """RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.pdf -> (rfc_cliente, rfc_monedero,
+    mes). El parser no depende de esto para leer el PDF —lee RFC y fechas
+    del propio documento—; es solo para organizar la descarga manual."""
+    nombre, ext = os.path.splitext(os.path.basename(nombre_archivo))
+    if ext.lower() != ".pdf":
+        return None
+    partes = nombre.split("_")
+    if len(partes) != 3:
+        return None
+    return tuple(partes)
+
+
+def reporte_carpeta(carpeta):
+    """Lee todos los PDF de una carpeta y arma el reporte final: por
+    cliente, cada mes con su monedero, estaciones agregadas y total; y los
+    PDF sospechosos (no cuadraron, o su nombre no sigue la convención) por
+    separado, nunca mezclados en el agregado."""
+    resultado = {}
+    for ruta in sorted(glob.glob(os.path.join(carpeta, "*.pdf"))):
+        partes = _partes_nombre(ruta)
+        if partes is None:
+            resultado.setdefault("_sin_clasificar", {"meses": {}, "sospechosos": []})
+            resultado["_sin_clasificar"]["sospechosos"].append(ruta)
+            continue
+        rfc_cliente, rfc_monedero, mes = partes
+        cliente = resultado.setdefault(rfc_cliente, {"meses": {}, "sospechosos": []})
+        datos = leer_pdf(ruta)
+        if not cuadra(datos["cargos"], datos["resumen"]):
+            cliente["sospechosos"].append(ruta)
+            continue
+        cliente["meses"][mes] = {
+            "rfc_monedero": rfc_monedero,
+            "por_estacion": agregar_por_estacion(datos["cargos"]),
+            "total": datos["resumen"]["subtotal"] if datos["resumen"] else None,
+        }
+    return resultado
+
+
+def main(argv):
+    if len(argv) < 3 or argv[1] != "reporte":
+        print("Uso: python estado_cuenta_monedero.py reporte <carpeta>")
+        return 1
+
+    reporte = reporte_carpeta(argv[2])
+    for rfc_cliente, datos in reporte.items():
+        if rfc_cliente == "_sin_clasificar":
+            continue
+        print("\n%s" % rfc_cliente)
+        estaciones_totales = set()
+        for mes, d in sorted(datos["meses"].items()):
+            estaciones_totales.update(d["por_estacion"].keys())
+            print("  %s  %-16s  $%s" % (
+                mes, d["rfc_monedero"], format(d["total"] or 0, ",.2f")))
+            for (rfc_est, clave_est), agregado in d["por_estacion"].items():
+                print("      estacion %s/%s: %d carga(s), $%s" % (
+                    rfc_est, clave_est, agregado["cargas"],
+                    format(agregado["importe"], ",.2f")))
+        print("  -> %d estacion(es) distinta(s) en los meses con PDF" % len(estaciones_totales))
+        if datos["sospechosos"]:
+            print("  ATENCION: %d PDF no cuadraron o no se pudieron usar:" % len(datos["sospechosos"]))
+            for s in datos["sospechosos"]:
+                print("    %s" % s)
+    if reporte.get("_sin_clasificar", {}).get("sospechosos"):
+        print("\nArchivos que no siguen la convención de nombre:")
+        for s in reporte["_sin_clasificar"]["sospechosos"]:
+            print("  %s" % s)
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main(sys.argv))
