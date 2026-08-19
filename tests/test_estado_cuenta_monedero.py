@@ -96,6 +96,33 @@ check(c["folio_operacion"] == "388927", "folio de operación: %r" % c["folio_ope
 check(ecm._cargos([TABLA_TRASLADOS]) == [], "una página sin ningún bloque de cargo regresa lista vacía")
 
 
+# ── cuadra(): la suma de importes contra el subtotal declarado ────────────
+CARGOS_DE_PRUEBA = [
+    {"rfc_estacion": "FIC120327XYZ", "clave_estacion": "9999999", "cantidad": 44.164, "importe": 909.35},
+    {"rfc_estacion": "FIC120327XYZ", "clave_estacion": "9999999", "cantidad": 20.0, "importe": 410.00},
+    {"rfc_estacion": "OTR050101ABC", "clave_estacion": "1234567", "cantidad": 30.0, "importe": 615.00},
+]
+
+check(ecm.cuadra(CARGOS_DE_PRUEBA, {"subtotal": 1934.35}),
+      "la suma de importes (1934.35) cuadra contra el subtotal declarado")
+check(not ecm.cuadra(CARGOS_DE_PRUEBA, {"subtotal": 5000.0}),
+      "una diferencia grande no cuadra: el PDF se marca sospechoso")
+check(not ecm.cuadra(CARGOS_DE_PRUEBA, None),
+      "sin resumen de cuenta (no se encontró la tabla), nunca cuadra")
+
+
+# ── agregar_por_estacion(): por (RFC, clave) de estación ───────────────────
+agregado = ecm.agregar_por_estacion(CARGOS_DE_PRUEBA)
+check(len(agregado) == 2, "dos estaciones distintas: %d" % len(agregado))
+clave_repetida = ("FIC120327XYZ", "9999999")
+check(agregado[clave_repetida]["cargas"] == 2,
+      "dos cargos en la misma estación se agregan, no se cuentan como estaciones distintas")
+check(abs(agregado[clave_repetida]["importe"] - 1319.35) < 0.01,
+      "importe total de esa estación: %r" % agregado[clave_repetida]["importe"])
+check(abs(agregado[clave_repetida]["litros"] - 64.164) < 0.01,
+      "litros totales de esa estación: %r" % agregado[clave_repetida]["litros"])
+
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))

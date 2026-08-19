@@ -92,3 +92,27 @@ def _cargos(tablas):
             "importe": float(valor_importe[2]) if valor_importe[2] else None,
         })
     return cargos
+
+
+def cuadra(cargos, resumen, tolerancia=0.05):
+    """La suma de importes debe coincidir con el subtotal que declaró el
+    propio monedero. Si no cuadra, el PDF se marca sospechoso — nunca se
+    usa a medias."""
+    if resumen is None:
+        return False
+    suma = sum(c["importe"] or 0 for c in cargos)
+    return abs(suma - resumen["subtotal"]) <= tolerancia
+
+
+def agregar_por_estacion(cargos):
+    """(RFC de estación, clave de estación) -> número de cargas, litros e
+    importe total. La clave es el par, no solo la clave de estación: dos
+    monederos distintos podrían coincidir en la clave interna."""
+    agregado = {}
+    for c in cargos:
+        clave = (c["rfc_estacion"], c["clave_estacion"])
+        a = agregado.setdefault(clave, {"cargas": 0, "litros": 0.0, "importe": 0.0})
+        a["cargas"] += 1
+        a["litros"] += c["cantidad"] or 0
+        a["importe"] += c["importe"] or 0
+    return agregado
