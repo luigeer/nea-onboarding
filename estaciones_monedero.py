@@ -33,3 +33,27 @@ def facturas_candidatas(entidad_id, rfc_monedero):
                 "fecha": f.get("issuedAt"),
             })
     return candidatas
+
+
+def _ultimos_n_meses(hoy, n):
+    meses = []
+    anio, mes = hoy.year, hoy.month
+    for _ in range(n):
+        meses.append("%04d-%02d" % (anio, mes))
+        mes -= 1
+        if mes == 0:
+            mes, anio = 12, anio - 1
+    return meses
+
+
+def confirmar_monedero_real(candidatas, hoy, minimo=2, ventana=3):
+    """¿Aparece el patrón de monto simbólico en al menos `minimo` de los
+    últimos `ventana` meses? `por_mes` solo trae los meses de la ventana
+    que sí tienen candidata, para que el plan de descarga (Task 5) sepa
+    exactamente cuál factura ir a buscar en cada mes."""
+    meses_ventana = set(_ultimos_n_meses(hoy, ventana))
+    por_mes = {}
+    for c in candidatas:
+        if c["mes"] in meses_ventana and c["mes"] not in por_mes:
+            por_mes[c["mes"]] = c
+    return len(por_mes) >= minimo, por_mes
