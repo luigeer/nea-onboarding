@@ -14,6 +14,8 @@ como un complemento aparte. Este módulo detecta ese patrón por API, sin
 descargar nada, para no confundir una cosa con la otra.
 """
 
+from datetime import date
+
 import syntage
 
 UMBRAL_MONTO_SIMBOLICO = 50.0
@@ -57,3 +59,54 @@ def confirmar_monedero_real(candidatas, hoy, minimo=2, ventana=3):
         if c["mes"] in meses_ventana and c["mes"] not in por_mes:
             por_mes[c["mes"]] = c
     return len(por_mes) >= minimo, por_mes
+
+
+def plan_descarga(clientes, hoy=None):
+    """clientes: la salida de monederos.barrer_entidades_syntage() (ya con
+    entidad_id en cada resultado). Devuelve exactamente qué facturas
+    descargar a mano: cliente, monedero, mes, folio fiscal — solo para los
+    (cliente, monedero) que de verdad confirman el patrón de monedero
+    real."""
+    hoy = hoy or date.today()
+    plan = []
+    for cliente in clientes:
+        for h in cliente.get("hallazgos", []):
+            candidatas = facturas_candidatas(cliente["entidad_id"], h["rfc_monedero"])
+            es_real, por_mes = confirmar_monedero_real(candidatas, hoy)
+            if not es_real:
+                continue
+            for mes, factura in sorted(por_mes.items()):
+                plan.append({
+                    "rfc_cliente": cliente["rfc"],
+                    "nombre_cliente": cliente.get("nombre"),
+                    "rfc_monedero": h["rfc_monedero"],
+                    "nombre_monedero": h["nombre_comercial"],
+                    "mes": mes,
+                    "folio_fiscal": factura["folio_fiscal"],
+                })
+    return plan
+
+
+def main(argv):
+    import monederos
+
+    if len(argv) < 2 or argv[1] != "plan":
+        print("Uso: python estaciones_monedero.py plan")
+        return 1
+
+    clientes = monederos.barrer_entidades_syntage()
+    plan = plan_descarga(clientes)
+    if not plan:
+        print("Ningún (cliente, monedero) confirmó el patrón de monedero real todavía.")
+        return 0
+    print("%d factura(s) por descargar a mano desde el panel de Syntage:\n" % len(plan))
+    for p in plan:
+        print("%-14s %-30s %-38s %s  folio %s" % (
+            p["rfc_cliente"], (p["nombre_cliente"] or "")[:30],
+            p["nombre_monedero"], p["mes"], p["folio_fiscal"]))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main(sys.argv))

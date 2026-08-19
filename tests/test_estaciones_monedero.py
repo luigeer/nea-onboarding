@@ -77,6 +77,48 @@ check(not es_real_unica, "1 sola coincidencia en la ventana no basta (se requier
 es_real_vacia, por_mes_vacio = estaciones_monedero.confirmar_monedero_real([], HOY)
 check(not es_real_vacia and por_mes_vacio == {}, "sin candidatas no hay monedero real")
 
+# ── plan_descarga(): une facturas_candidatas + confirmar_monedero_real ─────
+CLIENTES_DE_PRUEBA = [
+    {"rfc": "CLI001", "nombre": "CLIENTE UNO", "entidad_id": "e1",
+     "hallazgos": [{"rfc_monedero": "EFE8908015L3", "nombre_comercial": "Efecticard"},
+                   {"rfc_monedero": "PET7000000XX", "nombre_comercial": "Petro-7"}],
+     "estado": "ok"},
+]
+
+FACTURAS_POR_MONEDERO = {
+    # Efecticard: patron real, 2 de 3 meses.
+    "EFE8908015L3": [
+        {"uuid": "fa", "subtotal": 1.0, "issuedAt": "2026-06-01 00:00:00"},
+        {"uuid": "fb", "subtotal": 1.0, "issuedAt": "2026-07-01 00:00:00"},
+    ],
+    # Petro-7: una sola factura y de monto real -> no es monedero, fue
+    # compra directa en la estacion.
+    "PET7000000XX": [
+        {"uuid": "fc", "subtotal": 3200.0, "issuedAt": "2026-07-15 00:00:00"},
+    ],
+}
+
+
+class _SyntagePlanDescarga(object):
+    @staticmethod
+    def facturas(entidad_id, rfc_emisor):
+        return FACTURAS_POR_MONEDERO.get(rfc_emisor, [])
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntagePlanDescarga
+plan = estaciones_monedero.plan_descarga(CLIENTES_DE_PRUEBA, hoy=date(2026, 8, 19))
+estaciones_monedero.syntage = _original_syntage
+
+check(len(plan) == 2,
+      "Efecticard confirmado deja 2 renglones (uno por mes), Petro-7 queda fuera: %d" % len(plan))
+check(all(p["rfc_monedero"] == "EFE8908015L3" for p in plan),
+      "ningun renglon del plan es de Petro-7 (no paso el patron de recurrencia)")
+check({p["mes"] for p in plan} == {"2026-06", "2026-07"},
+      "los meses del plan son los que si tuvieron factura candidata")
+check(plan[0]["rfc_cliente"] == "CLI001" and plan[0]["nombre_monedero"] == "Efecticard",
+      "el renglon trae el contexto completo para ubicar la factura a mano")
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
