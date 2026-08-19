@@ -39,6 +39,7 @@ Uso:
     python syntage.py actos <RFC>           asambleas inscritas en el RPC
 """
 
+import http.client
 import json
 import os
 import sys
@@ -139,6 +140,12 @@ def pedir(ruta, params=None, metodo="GET", cuerpo=None, headers=None):
         raise ErrorSyntage(e.code, e.read().decode("utf-8", "replace"), ruta)
     except urllib.error.URLError as e:
         raise ErrorSyntage(0, "sin conexión: %s" % e.reason, ruta)
+    except http.client.HTTPException as e:
+        # La conexión abrió pero la respuesta se cortó a medias (típico en
+        # barridos largos de muchas páginas). Es tan "sin conexión" como un
+        # URLError: sin este catch tumba al llamador entero en vez de dejarlo
+        # tratarlo como una falla recuperable de esta petición.
+        raise ErrorSyntage(0, "respuesta incompleta: %s" % e, ruta)
 
 
 def _lista(respuesta):
@@ -171,6 +178,45 @@ def buscar_entidad(rfc):
 def crear_entidad(rfc, nombre=None):
     return pedir("/entities", metodo="POST",
                  cuerpo={"taxpayerId": rfc.upper(), "name": nombre or rfc.upper()})
+
+
+def facturas(entidad_id, rfc_emisor, tam_pagina=100):
+    """Facturas que un RFC (típicamente un monedero) le emitió a esta
+    entidad. Se probó a mano contra la API real: `page` truena con 400
+    ("Only cursor pagination is available for this endpoint"), y el header
+    de paginación por cursor documentado por Syntage no expone un link de
+    "siguiente" utilizable en la práctica para este endpoint. Para el caso
+    real —facturas de servicio de un emisor a un cliente— un tam_pagina
+    generoso ya trae todo: se probó pidiendo hasta 500 contra un caso con
+    55 facturas históricas y el resultado no cambió. Si algún día un
+    (cliente, emisor) tuviera más de tam_pagina facturas, se señala en vez
+    de recortar en silencio."""
+    lote = _lista(pedir("/entities/%s/invoices" % entidad_id,
+                        {"issuer.rfc": rfc_emisor.upper(), "itemsPerPage": tam_pagina}))
+    if len(lote) == tam_pagina:
+        raise ErrorSyntage(
+            0, "%s tiene %d o más facturas de %s: puede haber más que no se "
+               "están viendo (este endpoint no soporta paginar más allá del "
+               "primer lote)." % (entidad_id, tam_pagina, rfc_emisor),
+            "/entities/%s/invoices" % entidad_id)
+    return lote
+
+
+def entidades(tam_pagina=100):
+    """Todas las entidades que Syntage conoce, sin importar de qué cliente o
+    prospecto sean. Pagina explícitamente en vez de confiar en que una sola
+    llamada sin parámetros traiga todo: el default de la API no está
+    documentado y una entidad más allá del corte se perdería en silencio."""
+    pagina = 1
+    while True:
+        lote = _lista(pedir("/entities", {"itemsPerPage": tam_pagina, "page": pagina}))
+        if not lote:
+            return
+        for fila in lote:
+            yield fila
+        if len(lote) < tam_pagina:
+            return
+        pagina += 1
 
 
 def id_entidad(rfc, crear=False):
