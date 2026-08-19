@@ -170,7 +170,7 @@ def reporte_carpeta(carpeta):
         if not cuadra(datos["cargos"], datos["resumen"]):
             cliente["sospechosos"].append(ruta)
             continue
-        cliente["meses"][mes] = {
+        cliente["meses"][(mes, rfc_monedero)] = {
             "rfc_monedero": rfc_monedero,
             "por_estacion": agregar_por_estacion(datos["cargos"]),
             "total": datos["resumen"]["subtotal"] if datos["resumen"] else None,
@@ -189,7 +189,7 @@ def main(argv):
             continue
         print("\n%s" % rfc_cliente)
         estaciones_totales = set()
-        for mes, d in sorted(datos["meses"].items()):
+        for (mes, _rfc_monedero), d in sorted(datos["meses"].items()):
             estaciones_totales.update(d["por_estacion"].keys())
             print("  %s  %-16s  $%s" % (
                 mes, d["rfc_monedero"], format(d["total"] or 0, ",.2f")))
