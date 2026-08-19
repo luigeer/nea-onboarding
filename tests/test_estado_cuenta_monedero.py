@@ -88,6 +88,10 @@ check(c["cantidad"] == 44.164, "litros: %r" % c["cantidad"])
 check(c["nombre_combustible"] == "GasolinaMagnaFleet", "nombre del combustible: %r" % c["nombre_combustible"])
 check(c["valor_unitario"] == 20.590 and c["importe"] == 909.35,
       "valor unitario e importe: %r / %r" % (c["valor_unitario"], c["importe"]))
+check(c["identificador"] == "XXXXXXXXXXXX\n0001",
+      "identificador de tarjeta: %r" % c["identificador"])
+check(c["tipo_combustible"] == "1", "tipo de combustible: %r" % c["tipo_combustible"])
+check(c["folio_operacion"] == "388927", "folio de operación: %r" % c["folio_operacion"])
 
 check(ecm._cargos([TABLA_TRASLADOS]) == [], "una página sin ningún bloque de cargo regresa lista vacía")
 
