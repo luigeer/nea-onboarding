@@ -32,6 +32,7 @@ import re
 RE_RFC_EMISOR = re.compile(r"RFCemisor:\s*(\S+)")
 RE_RFC_RECEPTOR = re.compile(r"RFCreceptor:\s*(\S+)")
 RE_FOLIO_FISCAL = re.compile(r"Foliofiscal:\s*(\S+)")
+RE_FECHA_HORA = re.compile(r"^(\d{4}-\d{2}-\d{2})(\d{2}:\d{2}:\d{2})$")
 
 
 def _encabezado(texto_pagina1):
@@ -45,3 +46,49 @@ def _encabezado(texto_pagina1):
         "rfc_receptor": r.group(1) if r else None,
         "folio_fiscal": f.group(1) if f else None,
     }
+
+
+def _resumen_cuenta(tablas):
+    """La tabla 'Versión / Tipo de Operación / Número de Cuenta / Subtotal /
+    Total'. No siempre está en la misma página que los cargos, así que se
+    busca en vez de asumir su posición."""
+    for t in tablas:
+        if t and t[0][:1] == ["Versión"]:
+            fila = t[1]
+            return {
+                "version": fila[0],
+                "tipo_operacion": fila[1],
+                "numero_cuenta": fila[2],
+                "subtotal": float(fila[3]),
+                "total": float(fila[4]),
+            }
+    return None
+
+
+def _cargos(tablas):
+    """Cada bloque de cargo es una tabla de 4 filas: encabezado, datos,
+    encabezado de 'Valor Unitario/Importe', datos de esos dos. Se
+    distingue de la tabla de 'Traslados' (que también tiene forma de
+    tabla chica) por su propio encabezado ('Identificador', 'Fecha')."""
+    cargos = []
+    for t in tablas:
+        if not t or len(t) < 4 or t[0][0] != "Identificador" or t[0][1] != "Fecha":
+            continue
+        datos = t[1]
+        m = RE_FECHA_HORA.match(datos[1] or "")
+        fecha, hora = (m.group(1), m.group(2)) if m else (datos[1], None)
+        valor_importe = t[3]
+        cargos.append({
+            "identificador": datos[0],
+            "fecha": fecha,
+            "hora": hora,
+            "rfc_estacion": datos[3],
+            "clave_estacion": datos[4],
+            "cantidad": float(datos[5]) if datos[5] else None,
+            "tipo_combustible": datos[6],
+            "nombre_combustible": datos[8],
+            "folio_operacion": datos[9],
+            "valor_unitario": float(valor_importe[0]) if valor_importe[0] else None,
+            "importe": float(valor_importe[2]) if valor_importe[2] else None,
+        })
+    return cargos
