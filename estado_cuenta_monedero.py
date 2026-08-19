@@ -29,6 +29,8 @@ sospechoso en vez de usarse a medias, mismo principio que ya usa
 
 import re
 
+import pdfplumber
+
 RE_RFC_EMISOR = re.compile(r"RFCemisor:\s*(\S+)")
 RE_RFC_RECEPTOR = re.compile(r"RFCreceptor:\s*(\S+)")
 RE_FOLIO_FISCAL = re.compile(r"Foliofiscal:\s*(\S+)")
@@ -116,3 +118,20 @@ def agregar_por_estacion(cargos):
         a["litros"] += c["cantidad"] or 0
         a["importe"] += c["importe"] or 0
     return agregado
+
+
+def leer_pdf(ruta):
+    """Todo lo que trae un PDF de complemento: encabezado, resumen de
+    cuenta y cargos, juntando todas sus páginas. El resumen de cuenta se
+    busca en cada página hasta encontrarlo porque no siempre está en la
+    primera."""
+    with pdfplumber.open(ruta) as pdf:
+        encabezado = _encabezado(pdf.pages[0].extract_text() or "")
+        resumen = None
+        cargos = []
+        for pagina in pdf.pages:
+            tablas = pagina.extract_tables()
+            if resumen is None:
+                resumen = _resumen_cuenta(tablas)
+            cargos.extend(_cargos(tablas))
+    return {"encabezado": encabezado, "resumen": resumen, "cargos": cargos}
