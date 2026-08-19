@@ -135,16 +135,24 @@ la pide.
 
 ### Etapa nueva: `operando`
 
-`ETAPAS` pasa a ser:
+`operando` se agrega al final de `ETAPAS`, y **no** se agrega a `DIAS_ATORADO`:
+un cliente que ya opera no está atorado en nada, así que nunca debe salir con la
+marca `!`.
 
 ```
 apertura → validacion → riesgo → generacion → firma → cerrado → operando
 ```
 
-`operando` significa: ya es cliente, no está en el pipeline de apertura de
-cuentas nuevas. No hereda el SLA de 3 días de `apertura` ni la marca `!` de
-atorado. Un expediente puede vivir ahí de forma permanente, con o sin ronda
-abierta. Es la etapa con la que se abre un cliente heredado.
+`operando` significa: ya es cliente, no está en el pipeline de apertura de cuentas
+nuevas. Un expediente puede vivir ahí de forma permanente, con o sin ronda
+abierta. Es la etapa con la que se abre un cliente heredado, y la razón de que
+exista es no mezclarlo en el tablero con los prospectos.
+
+Nota sobre el estado actual del código, que este proyecto **no** cambia: `cmd_nuevo`
+abre los expedientes en etapa `recoleccion`, y `recoleccion` no aparece ni en
+`ETAPAS` ni en `DIAS_ATORADO`, así que hoy ordena al final del tablero por
+omisión (`orden.get(etapa, 99)`) y nunca marca atorado. Es una inconsistencia
+preexistente; arreglarla es trabajo aparte.
 
 ## El lector de uso de plataforma
 
@@ -310,10 +318,15 @@ nea.py aumento cerrar <folio> --aprobado <monto> --evidencia <ruta> \
 nea.py aumento tablero
 ```
 
-`--heredado` abre el expediente en etapa `operando` en vez de `apertura`. Sin la
-bandera, `nuevo` se comporta exactamente como hoy. La validación que ya existe se
-conserva en los dos casos: si el contribuyente no está ACTIVO en su CSF, no se
-abre expediente.
+`--heredado` abre el expediente en etapa `operando` en vez de `recoleccion`. Sin la
+bandera, `nuevo` se comporta exactamente como hoy. Todo lo demás que ya hace se
+conserva en los dos casos: si el contribuyente no está ACTIVO en su CSF no se abre
+expediente, y si ya existe un expediente con el mismo RFC se detiene.
+
+Para un heredado, además, `--heredado` **omite las preguntas de ventas** que no
+aplican —representante legal propuesto, número de tarjetas, domiciliación—: ese
+cliente ya firmó su contrato fuera del sistema y esos datos no se van a usar para
+generar nada. Sí pregunta quién llena el expediente, porque queda en el registro.
 
 La CSF para abrir un cliente heredado se descarga a mano desde la plataforma de
 Syntage. El catálogo `RECURSOS` de `syntage.py` no expone hoy ninguna ruta que
