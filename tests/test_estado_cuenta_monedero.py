@@ -123,6 +123,24 @@ check(abs(agregado[clave_repetida]["litros"] - 64.164) < 0.01,
       "litros totales de esa estación: %r" % agregado[clave_repetida]["litros"])
 
 
+# ── agregar_por_estacion(): el par (RFC, clave), no un solo campo ──────────
+# Prueba que dos monederos distintos pueden reusarcodigos de estacion internos:
+# agregar_por_estacion debe usar la CLAVE como el par (rfc, clave), no solo
+# el numero de clave. Si solo usara la clave, esta cargo se juntaria con
+# FIC120327XYZ/9999999 (pero tiene RFC distinto); si solo usara RFC, se
+# juntaria con OTR050101ABC/1234567 (pero tiene clave distinta).
+CARGOS_CLAVE_COMPARTIDA = CARGOS_DE_PRUEBA + [
+    {"rfc_estacion": "OTR050101ABC", "clave_estacion": "9999999", "cantidad": 10.0, "importe": 200.00},
+]
+agregado_compartido = ecm.agregar_por_estacion(CARGOS_CLAVE_COMPARTIDA)
+check(len(agregado_compartido) == 3,
+      "misma clave_estacion bajo distinto rfc_estacion NO se junta: %d estaciones" % len(agregado_compartido))
+check(("OTR050101ABC", "9999999") in agregado_compartido,
+      "el nuevo par (rfc, clave) tiene su propia entrada, separada de FIC120327XYZ/9999999")
+check(abs(agregado_compartido[("OTR050101ABC", "9999999")]["importe"] - 200.00) < 0.01,
+      "importe del nuevo par es independiente: %r" % agregado_compartido[("OTR050101ABC", "9999999")]["importe"])
+
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
