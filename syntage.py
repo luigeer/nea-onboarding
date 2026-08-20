@@ -182,24 +182,29 @@ def crear_entidad(rfc, nombre=None):
 
 def facturas(entidad_id, rfc_emisor, tam_pagina=100):
     """Facturas que un RFC (típicamente un monedero) le emitió a esta
-    entidad. Se probó a mano contra la API real: `page` truena con 400
-    ("Only cursor pagination is available for this endpoint"), y el header
-    de paginación por cursor documentado por Syntage no expone un link de
-    "siguiente" utilizable en la práctica para este endpoint. Para el caso
-    real —facturas de servicio de un emisor a un cliente— un tam_pagina
-    generoso ya trae todo: se probó pidiendo hasta 500 contra un caso con
-    55 facturas históricas y el resultado no cambió. Si algún día un
-    (cliente, emisor) tuviera más de tam_pagina facturas, se señala en vez
-    de recortar en silencio."""
-    lote = _lista(pedir("/entities/%s/invoices" % entidad_id,
-                        {"issuer.rfc": rfc_emisor.upper(), "itemsPerPage": tam_pagina}))
-    if len(lote) == tam_pagina:
-        raise ErrorSyntage(
-            0, "%s tiene %d o más facturas de %s: puede haber más que no se "
-               "están viendo (este endpoint no soporta paginar más allá del "
-               "primer lote)." % (entidad_id, tam_pagina, rfc_emisor),
-            "/entities/%s/invoices" % entidad_id)
-    return lote
+    entidad. Este endpoint solo pagina por cursor, y el cursor real solo
+    aparece si se pide como JSON-LD: con `Accept: application/json` (el
+    default de `pedir`) la API regresa un arreglo plano sin forma de saber
+    si hay más páginas — probado a mano, `page` truena con 400 ("Only
+    cursor pagination is available") y un `offset` plano se ignora en
+    silencio. Pidiendo `Accept: application/ld+json` con
+    `X-Pagination-Style: cursor` sí aparece `hydra:view.hydra:next`, un URL
+    ya armado con el cursor (`id[lt]=...`) para la siguiente página. Un
+    cliente real con varios años de facturas de un mismo monedero supera
+    fácilmente cien facturas —se confirmó contra un caso real con más de
+    cien—, así que sin esto varios de los clientes de mayor volumen se
+    quedaban sin poder revisarse."""
+    encabezados = {"Accept": "application/ld+json", "X-Pagination-Style": "cursor"}
+    ruta = "/entities/%s/invoices" % entidad_id
+    params = {"issuer.rfc": rfc_emisor.upper(), "itemsPerPage": tam_pagina}
+    facturas_ = []
+    while True:
+        r = pedir(ruta, params, headers=encabezados)
+        facturas_.extend(r.get("hydra:member", []))
+        siguiente = (r.get("hydra:view") or {}).get("hydra:next")
+        if not siguiente:
+            return facturas_
+        ruta, params = siguiente, None
 
 
 def entidades(tam_pagina=100):
