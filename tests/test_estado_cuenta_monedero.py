@@ -12,7 +12,9 @@ Se corre con:
 """
 
 import os
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -147,6 +149,72 @@ check(ecm._partes_nombre("LOG150312XX3_EFE8908015L3_2026-06.pdf") ==
       "separa las tres partes del nombre de archivo")
 check(ecm._partes_nombre("nombre-que-no-calza.pdf") is None,
       "un nombre que no sigue la convención regresa None, no truena")
+
+
+# ── reporte_carpeta(): cruce de encabezado y resiliencia por archivo ───────
+# leer_pdf() en sí (la extracción real de pdfplumber) queda exenta de mocks
+# por convención de este repo; lo que se prueba aquí es el control de flujo
+# NUEVO que agrega reporte_carpeta: el cruce del RFC del encabezado del PDF
+# contra el nombre de archivo (Fix #3), y que un archivo que truena al
+# leerse no tumbe el resto del lote (Fix #6). glob.glob() sí necesita
+# archivos reales, así que se fabrican .pdf vacíos en una carpeta temporal y
+# se sustituye ecm.leer_pdf por una versión de mentiras que regresa datos
+# según el nombre del archivo, sin tocar pdfplumber para nada.
+_CARPETA_PRUEBA = tempfile.mkdtemp(prefix="ecm_pruebas_")
+for _nombre in ("CLI001_MON001_2026-06.pdf",   # coincide: entra a "meses"
+                "CLI001_MON001_2026-07.pdf",   # RFC del PDF no coincide con el nombre
+                "CLI001_MON001_2026-08.pdf"):  # truena al leerse
+    with open(os.path.join(_CARPETA_PRUEBA, _nombre), "w") as _f:
+        _f.write("contenido irrelevante: leer_pdf está sustituido en esta prueba")
+
+
+def _leer_pdf_de_mentiras(ruta):
+    nombre = os.path.basename(ruta)
+    if nombre == "CLI001_MON001_2026-06.pdf":
+        return {
+            "encabezado": {"rfc_emisor": "MON001", "rfc_receptor": "CLI001", "folio_fiscal": "f-06"},
+            "resumen": {"subtotal": 100.0, "total": 116.0},
+            "cargos": [{"rfc_estacion": "EST001", "clave_estacion": "1",
+                        "cantidad": 10.0, "importe": 100.0}],
+        }
+    if nombre == "CLI001_MON001_2026-07.pdf":
+        # El nombre de archivo dice cliente=CLI001, pero el propio PDF dice
+        # que el receptor es otro RFC: un desliz al renombrar a mano.
+        return {
+            "encabezado": {"rfc_emisor": "MON001", "rfc_receptor": "OTR000000XX", "folio_fiscal": "f-07"},
+            "resumen": {"subtotal": 50.0, "total": 58.0},
+            "cargos": [{"rfc_estacion": "EST001", "clave_estacion": "1",
+                        "cantidad": 5.0, "importe": 50.0}],
+        }
+    if nombre == "CLI001_MON001_2026-08.pdf":
+        raise ValueError("no se pudo convertir a número: 'N/D'")
+    raise AssertionError("archivo inesperado en la prueba: %s" % nombre)
+
+
+_original_leer_pdf = ecm.leer_pdf
+ecm.leer_pdf = _leer_pdf_de_mentiras
+try:
+    reporte_prueba = ecm.reporte_carpeta(_CARPETA_PRUEBA)
+finally:
+    ecm.leer_pdf = _original_leer_pdf
+    shutil.rmtree(_CARPETA_PRUEBA, ignore_errors=True)
+
+cliente_prueba = reporte_prueba.get("CLI001", {"meses": {}, "sospechosos": []})
+check(len(cliente_prueba["meses"]) == 1 and ("2026-06", "MON001") in cliente_prueba["meses"],
+      "el único PDF cuyo encabezado sí coincide con el nombre entra a 'meses': %r"
+      % list(cliente_prueba["meses"]))
+check(cliente_prueba["meses"][("2026-06", "MON001")]["subtotal"] == 100.0,
+      "el mes que cuadra guarda el subtotal declarado (antes de IVA): %r"
+      % cliente_prueba["meses"][("2026-06", "MON001")]["subtotal"])
+check(len(cliente_prueba["sospechosos"]) == 2,
+      "los otros dos PDF (RFC de encabezado no coincide, y el que truena al leerse) "
+      "van a sospechosos, no tumban el lote: %d" % len(cliente_prueba["sospechosos"]))
+check(any("OTR000000XX" in s for s in cliente_prueba["sospechosos"]),
+      "el desliz de RFC en el encabezado queda anotado en el sospechoso: %r"
+      % cliente_prueba["sospechosos"])
+check(any("no se pudo leer" in s for s in cliente_prueba["sospechosos"]),
+      "el archivo que truena al leerse queda anotado como sospechoso, no detiene el resto: %r"
+      % cliente_prueba["sospechosos"])
 
 
 print()

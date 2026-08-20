@@ -154,9 +154,17 @@ def _partes_nombre(nombre_archivo):
 
 def reporte_carpeta(carpeta):
     """Lee todos los PDF de una carpeta y arma el reporte final: por
-    cliente, cada mes con su monedero, estaciones agregadas y total; y los
-    PDF sospechosos (no cuadraron, o su nombre no sigue la convención) por
-    separado, nunca mezclados en el agregado."""
+    cliente, cada mes con su monedero, estaciones agregadas y subtotal; y
+    los PDF sospechosos (no cuadraron, su nombre no sigue la convención, su
+    propio RFC no coincide con el del archivo, o no se pudieron leer) por
+    separado, nunca mezclados en el agregado.
+
+    Estos PDF llegan de un flujo manual: se descargan del panel de Syntage
+    (nombrados por UUID) y una persona los renombra a mano siguiendo la
+    convención RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.pdf. Un PDF malformado o un
+    desliz en ese renombrado no debe tumbar el resto del lote ni mezclar el
+    gasto de un cliente con el de otro en silencio — "se marca sospechoso
+    en vez de usarse a medias"."""
     resultado = {}
     for ruta in sorted(glob.glob(os.path.join(carpeta, "*.pdf"))):
         partes = _partes_nombre(ruta)
@@ -166,14 +174,31 @@ def reporte_carpeta(carpeta):
             continue
         rfc_cliente, rfc_monedero, mes = partes
         cliente = resultado.setdefault(rfc_cliente, {"meses": {}, "sospechosos": []})
-        datos = leer_pdf(ruta)
-        if not cuadra(datos["cargos"], datos["resumen"]):
-            cliente["sospechosos"].append(ruta)
+        try:
+            datos = leer_pdf(ruta)
+            encabezado = datos["encabezado"]
+            # El PDF trae su propia identidad (RFC emisor/receptor) leída
+            # del contenido, no del nombre del archivo. Si no coincide con
+            # lo que dice el nombre, un renombrado a mano se equivocó de
+            # cliente o de monedero: no se puede confiar en el nombre solo.
+            if (encabezado["rfc_receptor"] != rfc_cliente
+                    or encabezado["rfc_emisor"] != rfc_monedero):
+                cliente["sospechosos"].append(
+                    "%s (el PDF dice emisor=%s receptor=%s; el nombre de "
+                    "archivo dice monedero=%s cliente=%s)" % (
+                        ruta, encabezado["rfc_emisor"], encabezado["rfc_receptor"],
+                        rfc_monedero, rfc_cliente))
+                continue
+            if not cuadra(datos["cargos"], datos["resumen"]):
+                cliente["sospechosos"].append(ruta)
+                continue
+        except Exception as e:
+            cliente["sospechosos"].append("%s (no se pudo leer: %s)" % (ruta, e))
             continue
         cliente["meses"][(mes, rfc_monedero)] = {
             "rfc_monedero": rfc_monedero,
             "por_estacion": agregar_por_estacion(datos["cargos"]),
-            "total": datos["resumen"]["subtotal"] if datos["resumen"] else None,
+            "subtotal": datos["resumen"]["subtotal"],
         }
     return resultado
 
@@ -191,8 +216,12 @@ def main(argv):
         estaciones_totales = set()
         for (mes, _rfc_monedero), d in sorted(datos["meses"].items()):
             estaciones_totales.update(d["por_estacion"].keys())
-            print("  %s  %-16s  $%s" % (
-                mes, d["rfc_monedero"], format(d["total"] or 0, ",.2f")))
+            # "subtotal": es el monto antes de IVA que declara el propio
+            # monedero; el "total" (con IVA, ~16% más alto) vive en
+            # datos["resumen"] pero no se usa aquí — quien lea este reporte
+            # para un análisis de riesgo crediticio necesita saber cuál es.
+            print("  %s  %-16s  subtotal $%s (antes de IVA)" % (
+                mes, d["rfc_monedero"], format(d["subtotal"] or 0, ",.2f")))
             for (rfc_est, clave_est), agregado in d["por_estacion"].items():
                 print("      estacion %s/%s: %d carga(s), $%s" % (
                     rfc_est, clave_est, agregado["cargas"],
