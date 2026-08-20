@@ -29,10 +29,14 @@ def check(cond, msg):
 
 
 # ── facturas_candidatas(): filtra por monto simbólico ───────────────────────
+# Horas de media mañana/mediodía UTC a propósito: no cruzan la frontera de
+# mes al convertir a hora local (-6h), así que el mes esperado abajo es el
+# mismo con o sin la corrección de huso horario del Fix #5 (que se prueba
+# aparte, más abajo, con un caso que sí cruza la frontera).
 FACTURAS_MIXTAS = [
-    {"uuid": "f1", "subtotal": 1.0, "issuedAt": "2026-06-01 05:59:59"},
+    {"uuid": "f1", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
     {"uuid": "f2", "subtotal": 45230.50, "issuedAt": "2026-06-15 10:00:00"},
-    {"uuid": "f3", "subtotal": 2.09, "issuedAt": "2026-07-01 05:59:59"},
+    {"uuid": "f3", "subtotal": 2.09, "issuedAt": "2026-07-20 12:00:00"},
 ]
 
 
@@ -52,7 +56,33 @@ check(len(candidatas) == 2,
 check({c["folio_fiscal"] for c in candidatas} == {"f1", "f3"},
       "la de $45,230.50 (compra real) queda fuera")
 check(candidatas[0]["mes"] == "2026-06",
-      "el mes sale de issuedAt, truncado a AAAA-MM: %r" % candidatas[0]["mes"])
+      "el mes sale de issuedAt, convertido a hora local: %r" % candidatas[0]["mes"])
+
+# ── facturas_candidatas(): el mes se calcula en hora local, no en UTC crudo ─
+# Fix #5, confirmado contra datos reales: Efecticard emite su estado de
+# cuenta a las 23:59:59 hora de Ciudad de México del último día del mes
+# cubierto, que en UTC ya cae en el primer minuto del día siguiente
+# (23:59:59 CST = 05:59:59 UTC del día 1). Truncar el string UTC sin
+# convertir etiquetaría esta factura como abril en vez de marzo.
+FACTURA_EN_LA_FRONTERA = [
+    {"uuid": "f-frontera", "subtotal": 1.0, "issuedAt": "2023-04-01 05:59:59"},
+]
+
+
+class _SyntageFrontera(object):
+    @staticmethod
+    def facturas(entidad_id, rfc_emisor):
+        return FACTURA_EN_LA_FRONTERA
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntageFrontera
+candidatas_frontera = estaciones_monedero.facturas_candidatas("cualquier-id", "EFE8908015L3")
+estaciones_monedero.syntage = _original_syntage
+
+check(candidatas_frontera[0]["mes"] == "2023-03",
+      "2023-04-01 05:59:59 UTC son las 23:59:59 del 31 de marzo en Ciudad de "
+      "México: el mes es marzo, no abril: %r" % candidatas_frontera[0]["mes"])
 
 # ── confirmar_monedero_real(): patrón mensual sobre una ventana fija ───────
 HOY = date(2026, 8, 19)
@@ -86,15 +116,17 @@ CLIENTES_DE_PRUEBA = [
 ]
 
 FACTURAS_POR_MONEDERO = {
-    # Efecticard: patron real, 2 de 3 meses.
+    # Efecticard: patron real, 2 de 3 meses. Horas de mediodía UTC a
+    # propósito, para no cruzar la frontera de mes con la corrección de
+    # huso horario del Fix #5.
     "EFE8908015L3": [
-        {"uuid": "fa", "subtotal": 1.0, "issuedAt": "2026-06-01 00:00:00"},
-        {"uuid": "fb", "subtotal": 1.0, "issuedAt": "2026-07-01 00:00:00"},
+        {"uuid": "fa", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
+        {"uuid": "fb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00"},
     ],
     # Petro-7: una sola factura y de monto real -> no es monedero, fue
     # compra directa en la estacion.
     "PET7000000XX": [
-        {"uuid": "fc", "subtotal": 3200.0, "issuedAt": "2026-07-15 00:00:00"},
+        {"uuid": "fc", "subtotal": 3200.0, "issuedAt": "2026-07-15 12:00:00"},
     ],
 }
 
@@ -107,7 +139,7 @@ class _SyntagePlanDescarga(object):
 
 _original_syntage = estaciones_monedero.syntage
 estaciones_monedero.syntage = _SyntagePlanDescarga
-plan = estaciones_monedero.plan_descarga(CLIENTES_DE_PRUEBA, hoy=date(2026, 8, 19))
+plan, sin_revisar = estaciones_monedero.plan_descarga(CLIENTES_DE_PRUEBA, hoy=date(2026, 8, 19))
 estaciones_monedero.syntage = _original_syntage
 
 check(len(plan) == 2,
@@ -118,6 +150,92 @@ check({p["mes"] for p in plan} == {"2026-06", "2026-07"},
       "los meses del plan son los que si tuvieron factura candidata")
 check(plan[0]["rfc_cliente"] == "CLI001" and plan[0]["nombre_monedero"] == "Efecticard",
       "el renglon trae el contexto completo para ubicar la factura a mano")
+check(sin_revisar == [], "sin errores de Syntage, no hay (cliente, monedero) sin revisar")
+
+
+# ── plan_descarga(): un mes con 2 candidatas simbólicas no se pierde ───────
+# Fix #4: confirmar_monedero_real ya no se queda solo con la primera
+# candidata de cada mes. Dos tipos de CFDI simbólico del mismo emisor caen
+# en julio (el cargo administrativo normal y una comisión aparte por
+# fondos insuficientes): ambas deben llegar al plan de descarga, no solo
+# una elegida al azar.
+CLIENTE_MES_AMBIGUO = [
+    {"rfc": "CLI002", "nombre": "CLIENTE DOS", "entidad_id": "e2",
+     "hallazgos": [{"rfc_monedero": "EFE8908015L3", "nombre_comercial": "Efecticard"}],
+     "estado": "ok"},
+]
+
+FACTURAS_MES_AMBIGUO = {
+    "EFE8908015L3": [
+        {"uuid": "ga", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
+        {"uuid": "gb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00"},
+        {"uuid": "gc", "subtotal": 2.09, "issuedAt": "2026-07-16 12:00:00"},
+    ],
+}
+
+
+class _SyntageMesAmbiguo(object):
+    @staticmethod
+    def facturas(entidad_id, rfc_emisor):
+        return FACTURAS_MES_AMBIGUO.get(rfc_emisor, [])
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntageMesAmbiguo
+plan_ambiguo, _sin_revisar_ambiguo = estaciones_monedero.plan_descarga(
+    CLIENTE_MES_AMBIGUO, hoy=date(2026, 8, 19))
+estaciones_monedero.syntage = _original_syntage
+
+check(len(plan_ambiguo) == 3,
+      "julio con 2 candidatas produce 2 renglones y junio 1: 3 en total, no se descarta ninguna: %d"
+      % len(plan_ambiguo))
+folios_julio = {p["folio_fiscal"] for p in plan_ambiguo if p["mes"] == "2026-07"}
+check(folios_julio == {"gb", "gc"},
+      "ambas facturas simbólicas de julio llegan al plan, no solo la primera: %r" % folios_julio)
+
+
+# ── plan_descarga(): un ErrorSyntage en un (cliente, monedero) no tumba el resto ─
+# Fix #1: facturas_candidatas puede tronar (>= 100 facturas de un emisor, o
+# una respuesta truncada a media consulta) para un (cliente, monedero) sin
+# que eso descarte el barrido de los demás clientes ya procesados.
+CLIENTES_CON_FALLA = [
+    {"rfc": "CLI001", "nombre": "CLIENTE UNO", "entidad_id": "e1",
+     "hallazgos": [{"rfc_monedero": "ROT0000000XX", "nombre_comercial": "Monedero Roto"}],
+     "estado": "ok"},
+    {"rfc": "CLI003", "nombre": "CLIENTE TRES", "entidad_id": "e3",
+     "hallazgos": [{"rfc_monedero": "EFE8908015L3", "nombre_comercial": "Efecticard"}],
+     "estado": "ok"},
+]
+
+FACTURAS_CON_FALLA = {
+    "EFE8908015L3": [
+        {"uuid": "ha", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
+        {"uuid": "hb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00"},
+    ],
+}
+
+
+class _SyntageConFalla(object):
+    ErrorSyntage = estaciones_monedero.syntage.ErrorSyntage
+
+    @staticmethod
+    def facturas(entidad_id, rfc_emisor):
+        if rfc_emisor == "ROT0000000XX":
+            raise _SyntageConFalla.ErrorSyntage(0, "respuesta incompleta: simulada", "/invoices")
+        return FACTURAS_CON_FALLA.get(rfc_emisor, [])
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntageConFalla
+plan_con_falla, sin_revisar_con_falla = estaciones_monedero.plan_descarga(
+    CLIENTES_CON_FALLA, hoy=date(2026, 8, 19))
+estaciones_monedero.syntage = _original_syntage
+
+check(len(sin_revisar_con_falla) == 1 and sin_revisar_con_falla[0]["rfc_cliente"] == "CLI001",
+      "el (cliente, monedero) que truena queda anotado en sin_revisar: %r" % sin_revisar_con_falla)
+check(len(plan_con_falla) == 2 and all(p["rfc_cliente"] == "CLI003" for p in plan_con_falla),
+      "CLIENTE TRES sigue confirmando su patrón aunque CLIENTE UNO haya tronado: %d renglon(es)"
+      % len(plan_con_falla))
 
 print()
 if fallas:

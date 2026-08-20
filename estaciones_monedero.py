@@ -14,11 +14,28 @@ como un complemento aparte. Este módulo detecta ese patrón por API, sin
 descargar nada, para no confundir una cosa con la otra.
 """
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import syntage
 
 UMBRAL_MONTO_SIMBOLICO = 50.0
+
+# Mexico no tiene horario de verano desde 2022: restar un offset fijo de 6
+# horas basta para pasar de UTC a hora de Ciudad de Mexico, sin necesidad de
+# zoneinfo/pytz (que este repo no usa en ningún otro lado).
+_OFFSET_MEXICO = timedelta(hours=6)
+
+
+def _mes_facturacion(issued_at):
+    """El mes real de facturación, en hora local de Ciudad de México — no el
+    mes que nombra el string UTC que entrega Syntage. Se confirmó contra
+    datos reales: Efecticard emite su estado de cuenta a las 23:59:59 hora
+    local del último día del mes cubierto, que en UTC ya cae en el primer
+    minuto del mes SIGUIENTE (23:59:59 CST = 05:59:59 UTC del día 1).
+    Truncar el string UTC sin convertir etiquetaría esa factura con el mes
+    equivocado."""
+    dt_utc = datetime.strptime(issued_at, "%Y-%m-%d %H:%M:%S")
+    return (dt_utc - _OFFSET_MEXICO).strftime("%Y-%m")
 
 
 def facturas_candidatas(entidad_id, rfc_monedero):
@@ -28,8 +45,9 @@ def facturas_candidatas(entidad_id, rfc_monedero):
     candidatas = []
     for f in syntage.facturas(entidad_id, rfc_monedero):
         if (f.get("subtotal") or 0) < UMBRAL_MONTO_SIMBOLICO:
+            issued_at = f.get("issuedAt") or ""
             candidatas.append({
-                "mes": (f.get("issuedAt") or "")[:7],
+                "mes": _mes_facturacion(issued_at) if issued_at else "",
                 "folio_fiscal": f.get("uuid"),
                 "subtotal": f.get("subtotal"),
                 "fecha": f.get("issuedAt"),
@@ -50,41 +68,65 @@ def _ultimos_n_meses(hoy, n):
 
 def confirmar_monedero_real(candidatas, hoy, minimo=2, ventana=3):
     """¿Aparece el patrón de monto simbólico en al menos `minimo` de los
-    últimos `ventana` meses? `por_mes` solo trae los meses de la ventana
-    que sí tienen candidata, para que el plan de descarga (Task 5) sepa
-    exactamente cuál factura ir a buscar en cada mes."""
+    últimos `ventana` meses? `por_mes` trae, para cada mes de la ventana que
+    sí tiene candidata, la LISTA completa de candidatas de ese mes —no solo
+    la primera—: dos tipos distintos de CFDI simbólico del mismo emisor
+    pueden caer en el mismo mes (p.ej. el cargo administrativo normal y una
+    comisión aparte por fondos insuficientes), y quedarse con la primera
+    arbitrariamente podría descartar en silencio la que sí trae el
+    complemento de combustible."""
     meses_ventana = set(_ultimos_n_meses(hoy, ventana))
     por_mes = {}
     for c in candidatas:
-        if c["mes"] in meses_ventana and c["mes"] not in por_mes:
-            por_mes[c["mes"]] = c
+        if c["mes"] in meses_ventana:
+            por_mes.setdefault(c["mes"], []).append(c)
     return len(por_mes) >= minimo, por_mes
 
 
 def plan_descarga(clientes, hoy=None):
     """clientes: la salida de monederos.barrer_entidades_syntage() (ya con
-    entidad_id en cada resultado). Devuelve exactamente qué facturas
-    descargar a mano: cliente, monedero, mes, folio fiscal — solo para los
-    (cliente, monedero) que de verdad confirman el patrón de monedero
-    real."""
+    entidad_id en cada resultado). Devuelve (plan, sin_revisar):
+
+    - plan: exactamente qué facturas descargar a mano: cliente, monedero,
+      mes, folio fiscal — solo para los (cliente, monedero) que de verdad
+      confirman el patrón de monedero real. Un mes con más de una candidata
+      simbólica (ver confirmar_monedero_real) aporta un renglón por cada
+      una, no uno solo.
+    - sin_revisar: los (cliente, monedero) que no se pudieron revisar porque
+      Syntage truena a media consulta (p.ej. ≥100 facturas de un emisor, o
+      una respuesta truncada) — mismo patrón que
+      monederos.analizar_cliente(): se anota el motivo y se sigue con el
+      resto, en vez de tirar todo el barrido ya hecho."""
     hoy = hoy or date.today()
     plan = []
+    sin_revisar = []
     for cliente in clientes:
         for h in cliente.get("hallazgos", []):
-            candidatas = facturas_candidatas(cliente["entidad_id"], h["rfc_monedero"])
-            es_real, por_mes = confirmar_monedero_real(candidatas, hoy)
-            if not es_real:
-                continue
-            for mes, factura in sorted(por_mes.items()):
-                plan.append({
+            try:
+                candidatas = facturas_candidatas(cliente["entidad_id"], h["rfc_monedero"])
+            except syntage.ErrorSyntage as e:
+                sin_revisar.append({
                     "rfc_cliente": cliente["rfc"],
                     "nombre_cliente": cliente.get("nombre"),
                     "rfc_monedero": h["rfc_monedero"],
                     "nombre_monedero": h["nombre_comercial"],
-                    "mes": mes,
-                    "folio_fiscal": factura["folio_fiscal"],
+                    "motivo": "sin acceso a facturas (%s)" % e,
                 })
-    return plan
+                continue
+            es_real, por_mes = confirmar_monedero_real(candidatas, hoy)
+            if not es_real:
+                continue
+            for mes, facturas in sorted(por_mes.items()):
+                for factura in facturas:
+                    plan.append({
+                        "rfc_cliente": cliente["rfc"],
+                        "nombre_cliente": cliente.get("nombre"),
+                        "rfc_monedero": h["rfc_monedero"],
+                        "nombre_monedero": h["nombre_comercial"],
+                        "mes": mes,
+                        "folio_fiscal": factura["folio_fiscal"],
+                    })
+    return plan, sin_revisar
 
 
 def main(argv):
@@ -95,15 +137,22 @@ def main(argv):
         return 1
 
     clientes = monederos.barrer_entidades_syntage()
-    plan = plan_descarga(clientes)
+    plan, sin_revisar = plan_descarga(clientes)
     if not plan:
         print("Ningún (cliente, monedero) confirmó el patrón de monedero real todavía.")
-        return 0
-    print("%d factura(s) por descargar a mano desde el panel de Syntage:\n" % len(plan))
-    for p in plan:
-        print("%-14s %-30s %-38s %s  folio %s" % (
-            p["rfc_cliente"], (p["nombre_cliente"] or "")[:30],
-            p["nombre_monedero"], p["mes"], p["folio_fiscal"]))
+    else:
+        print("%d factura(s) por descargar a mano desde el panel de Syntage:\n" % len(plan))
+        for p in plan:
+            # Nombre exacto que espera estado_cuenta_monedero.py: se puede
+            # copiar tal cual como nombre de archivo al guardar el PDF.
+            nombre_archivo = "%s_%s_%s.pdf" % (p["rfc_cliente"], p["rfc_monedero"], p["mes"])
+            print("%-40s %-30s folio %s" % (
+                nombre_archivo, p["nombre_monedero"], p["folio_fiscal"]))
+    if sin_revisar:
+        print("\n%d (cliente, monedero) no se pudo revisar:" % len(sin_revisar))
+        for s in sin_revisar:
+            print("  %-14s %-30s %s" % (
+                s["rfc_cliente"], s["nombre_monedero"], s["motivo"]))
     return 0
 
 
