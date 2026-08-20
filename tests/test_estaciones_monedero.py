@@ -237,6 +237,79 @@ check(len(plan_con_falla) == 2 and all(p["rfc_cliente"] == "CLI003" for p in pla
       "CLIENTE TRES sigue confirmando su patrón aunque CLIENTE UNO haya tronado: %d renglon(es)"
       % len(plan_con_falla))
 
+
+# ── plan_descarga(): la ventana se ancla a la última extracción, no a hoy ──
+# Descubierto corriendo el barrido real: varios clientes grandes tienen
+# credencial vigente pero Syntage no ha vuelto a extraer sus datos en
+# semanas o meses. Anclar la ventana a "hoy" los descarta a todos aunque su
+# patrón de monedero siga intacto en los datos que sí existen.
+CLIENTE_REZAGADO = [
+    {"rfc": "CLI004", "nombre": "CLIENTE REZAGADO", "entidad_id": "e4",
+     "hallazgos": [{"rfc_monedero": "EFE8908015L3", "nombre_comercial": "Efecticard"}],
+     "estado": "ok"},
+]
+
+# La última factura es de abril; sin anclar, "hoy" (agosto) deja la ventana
+# en junio/julio/agosto y ninguna candidata cae dentro.
+FACTURAS_REZAGADAS = {
+    "EFE8908015L3": [
+        {"uuid": "ia", "subtotal": 1.0, "issuedAt": "2026-02-15 12:00:00"},
+        {"uuid": "ib", "subtotal": 1.0, "issuedAt": "2026-03-15 12:00:00"},
+        {"uuid": "ic", "subtotal": 1.0, "issuedAt": "2026-04-15 12:00:00"},
+    ],
+}
+
+
+class _SyntageRezagado(object):
+    @staticmethod
+    def facturas(entidad_id, rfc_emisor):
+        return FACTURAS_REZAGADAS.get(rfc_emisor, [])
+
+    @staticmethod
+    def estado_credenciales(entidad_id):
+        return [{"actualizada": "2026-04-20 10:00:00"}]
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntageRezagado
+plan_rezagado, _ = estaciones_monedero.plan_descarga(CLIENTE_REZAGADO, hoy=date(2026, 8, 19))
+estaciones_monedero.syntage = _original_syntage
+
+check(len(plan_rezagado) > 0,
+      "un cliente con extracción rezagada (última: abril) sí se confirma anclando a esa fecha, "
+      "no a hoy (agosto): %d renglon(es)" % len(plan_rezagado))
+check({p["mes"] for p in plan_rezagado} == {"2026-02", "2026-03", "2026-04"},
+      "los meses confirmados son los de la ventana anclada a abril, no a agosto: %r"
+      % {p["mes"] for p in plan_rezagado})
+
+
+# ── _fecha_ancla(): si no se puede saber, se usa hoy sin tronar ────────────
+class _SyntageSinCredenciales(object):
+    @staticmethod
+    def estado_credenciales(entidad_id):
+        return []
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntageSinCredenciales
+ancla_vacia = estaciones_monedero._fecha_ancla("cualquier-id", date(2026, 8, 19))
+estaciones_monedero.syntage = _original_syntage
+check(ancla_vacia == date(2026, 8, 19), "sin credenciales que consultar, el ancla es hoy")
+
+
+class _SyntageCredencialesTruena(object):
+    @staticmethod
+    def estado_credenciales(entidad_id):
+        raise RuntimeError("simulado")
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntageCredencialesTruena
+ancla_con_falla = estaciones_monedero._fecha_ancla("cualquier-id", date(2026, 8, 19))
+estaciones_monedero.syntage = _original_syntage
+check(ancla_con_falla == date(2026, 8, 19),
+      "si consultar credenciales truena, se usa hoy en vez de tumbar el barrido")
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))

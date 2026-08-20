@@ -83,6 +83,28 @@ def confirmar_monedero_real(candidatas, hoy, minimo=2, ventana=3):
     return len(por_mes) >= minimo, por_mes
 
 
+def _fecha_ancla(entidad_id, hoy):
+    """La ventana de "últimos N meses" se ancla a cuándo Syntage actualizó
+    por última vez a esta entidad, no a hoy. Se descubrió corriendo el
+    barrido real: varios clientes grandes tienen credencial vigente pero
+    llevan semanas o meses sin que Syntage vuelva a extraer sus datos —
+    anclar a "hoy" los descarta a todos aunque su patrón de monedero siga
+    intacto en los datos que sí existen. Si no se puede saber (entidad de
+    prueba, falla de red), se usa hoy — el comportamiento de siempre."""
+    try:
+        fechas = [c.get("actualizada") for c in syntage.estado_credenciales(entidad_id)
+                  if c.get("actualizada")]
+    except Exception:
+        return hoy
+    if not fechas:
+        return hoy
+    try:
+        ancla = datetime.strptime(max(fechas)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return hoy
+    return min(ancla, hoy)
+
+
 def plan_descarga(clientes, hoy=None):
     """clientes: la salida de monederos.barrer_entidades_syntage() (ya con
     entidad_id en cada resultado). Devuelve (plan, sin_revisar):
@@ -93,14 +115,17 @@ def plan_descarga(clientes, hoy=None):
       simbólica (ver confirmar_monedero_real) aporta un renglón por cada
       una, no uno solo.
     - sin_revisar: los (cliente, monedero) que no se pudieron revisar porque
-      Syntage truena a media consulta (p.ej. ≥100 facturas de un emisor, o
-      una respuesta truncada) — mismo patrón que
-      monederos.analizar_cliente(): se anota el motivo y se sigue con el
-      resto, en vez de tirar todo el barrido ya hecho."""
+      Syntage truena a media consulta (p.ej. una respuesta truncada) —
+      mismo patrón que monederos.analizar_cliente(): se anota el motivo y
+      se sigue con el resto, en vez de tirar todo el barrido ya hecho.
+
+    La ventana de "últimos 3 meses" se ancla, por cliente, a la fecha de su
+    última extracción en Syntage (ver _fecha_ancla) — no a `hoy` a secas."""
     hoy = hoy or date.today()
     plan = []
     sin_revisar = []
     for cliente in clientes:
+        ancla = _fecha_ancla(cliente["entidad_id"], hoy)
         for h in cliente.get("hallazgos", []):
             try:
                 candidatas = facturas_candidatas(cliente["entidad_id"], h["rfc_monedero"])
@@ -113,7 +138,7 @@ def plan_descarga(clientes, hoy=None):
                     "motivo": "sin acceso a facturas (%s)" % e,
                 })
                 continue
-            es_real, por_mes = confirmar_monedero_real(candidatas, hoy)
+            es_real, por_mes = confirmar_monedero_real(candidatas, ancla)
             if not es_real:
                 continue
             for mes, facturas in sorted(por_mes.items()):
