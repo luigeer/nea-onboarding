@@ -34,9 +34,15 @@ def check(cond, msg):
 # mismo con o sin la corrección de huso horario del Fix #5 (que se prueba
 # aparte, más abajo, con un caso que sí cruza la frontera).
 FACTURAS_MIXTAS = [
-    {"uuid": "f1", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
-    {"uuid": "f2", "subtotal": 45230.50, "issuedAt": "2026-06-15 10:00:00"},
-    {"uuid": "f3", "subtotal": 2.09, "issuedAt": "2026-07-20 12:00:00"},
+    {"uuid": "f1", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00", "type": "I"},
+    {"uuid": "f2", "subtotal": 45230.50, "issuedAt": "2026-06-15 10:00:00", "type": "I"},
+    {"uuid": "f3", "subtotal": 2.09, "issuedAt": "2026-07-20 12:00:00", "type": "I"},
+    # Descubierto corriendo el barrido real: un "Complemento de Pago" (recibo
+    # de pago, type "P") también puede traer un subtotal simbólico, pero
+    # nunca trae el complemento de combustible — es un tipo de CFDI
+    # distinto. Sin este filtro, facturas_candidatas() lo cuenta como
+    # candidato y el PDF/XML que se baja a mano nunca tiene datos que usar.
+    {"uuid": "f4-pago", "subtotal": 0.0, "issuedAt": "2026-06-20 12:00:00", "type": "P"},
 ]
 
 
@@ -52,9 +58,9 @@ candidatas = estaciones_monedero.facturas_candidatas("cualquier-id", "EFE8908015
 estaciones_monedero.syntage = _original_syntage
 
 check(len(candidatas) == 2,
-      "solo las facturas de monto simbólico cuentan como candidatas: %d" % len(candidatas))
+      "solo las facturas de tipo Ingreso y monto simbólico cuentan como candidatas: %d" % len(candidatas))
 check({c["folio_fiscal"] for c in candidatas} == {"f1", "f3"},
-      "la de $45,230.50 (compra real) queda fuera")
+      "la de $45,230.50 (compra real) y la de tipo Pago quedan fuera")
 check(candidatas[0]["mes"] == "2026-06",
       "el mes sale de issuedAt, convertido a hora local: %r" % candidatas[0]["mes"])
 
@@ -65,7 +71,7 @@ check(candidatas[0]["mes"] == "2026-06",
 # (23:59:59 CST = 05:59:59 UTC del día 1). Truncar el string UTC sin
 # convertir etiquetaría esta factura como abril en vez de marzo.
 FACTURA_EN_LA_FRONTERA = [
-    {"uuid": "f-frontera", "subtotal": 1.0, "issuedAt": "2023-04-01 05:59:59"},
+    {"uuid": "f-frontera", "subtotal": 1.0, "issuedAt": "2023-04-01 05:59:59", "type": "I"},
 ]
 
 
@@ -120,13 +126,13 @@ FACTURAS_POR_MONEDERO = {
     # propósito, para no cruzar la frontera de mes con la corrección de
     # huso horario del Fix #5.
     "EFE8908015L3": [
-        {"uuid": "fa", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
-        {"uuid": "fb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00"},
+        {"uuid": "fa", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00", "type": "I"},
+        {"uuid": "fb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00", "type": "I"},
     ],
     # Petro-7: una sola factura y de monto real -> no es monedero, fue
     # compra directa en la estacion.
     "PET7000000XX": [
-        {"uuid": "fc", "subtotal": 3200.0, "issuedAt": "2026-07-15 12:00:00"},
+        {"uuid": "fc", "subtotal": 3200.0, "issuedAt": "2026-07-15 12:00:00", "type": "I"},
     ],
 }
 
@@ -167,9 +173,9 @@ CLIENTE_MES_AMBIGUO = [
 
 FACTURAS_MES_AMBIGUO = {
     "EFE8908015L3": [
-        {"uuid": "ga", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
-        {"uuid": "gb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00"},
-        {"uuid": "gc", "subtotal": 2.09, "issuedAt": "2026-07-16 12:00:00"},
+        {"uuid": "ga", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00", "type": "I"},
+        {"uuid": "gb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00", "type": "I"},
+        {"uuid": "gc", "subtotal": 2.09, "issuedAt": "2026-07-16 12:00:00", "type": "I"},
     ],
 }
 
@@ -209,8 +215,8 @@ CLIENTES_CON_FALLA = [
 
 FACTURAS_CON_FALLA = {
     "EFE8908015L3": [
-        {"uuid": "ha", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00"},
-        {"uuid": "hb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00"},
+        {"uuid": "ha", "subtotal": 1.0, "issuedAt": "2026-06-15 12:00:00", "type": "I"},
+        {"uuid": "hb", "subtotal": 1.0, "issuedAt": "2026-07-15 12:00:00", "type": "I"},
     ],
 }
 
@@ -253,9 +259,9 @@ CLIENTE_REZAGADO = [
 # en junio/julio/agosto y ninguna candidata cae dentro.
 FACTURAS_REZAGADAS = {
     "EFE8908015L3": [
-        {"uuid": "ia", "subtotal": 1.0, "issuedAt": "2026-02-15 12:00:00"},
-        {"uuid": "ib", "subtotal": 1.0, "issuedAt": "2026-03-15 12:00:00"},
-        {"uuid": "ic", "subtotal": 1.0, "issuedAt": "2026-04-15 12:00:00"},
+        {"uuid": "ia", "subtotal": 1.0, "issuedAt": "2026-02-15 12:00:00", "type": "I"},
+        {"uuid": "ib", "subtotal": 1.0, "issuedAt": "2026-03-15 12:00:00", "type": "I"},
+        {"uuid": "ic", "subtotal": 1.0, "issuedAt": "2026-04-15 12:00:00", "type": "I"},
     ],
 }
 

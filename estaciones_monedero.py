@@ -41,9 +41,18 @@ def _mes_facturacion(issued_at):
 def facturas_candidatas(entidad_id, rfc_monedero):
     """Facturas de ese RFC a esta entidad cuyo subtotal es simbólico: la
     señal de que es una factura de servicio de monedero, no una compra
-    real de combustible."""
+    real de combustible.
+
+    Se exige además type == "I" (Ingreso). Se descubrió corriendo el
+    barrido real: un "Complemento de Pago" (recibo de pago, type "P")
+    también puede traer un subtotal simbólico o en cero, pero nunca trae
+    el complemento de combustible — es un tipo de CFDI distinto, no una
+    variante del estado de cuenta. Sin este filtro, se baja a mano un XML
+    que nunca va a tener datos que usar."""
     candidatas = []
     for f in syntage.facturas(entidad_id, rfc_monedero):
+        if f.get("type") != "I":
+            continue
         if (f.get("subtotal") or 0) < UMBRAL_MONTO_SIMBOLICO:
             issued_at = f.get("issuedAt") or ""
             candidatas.append({
