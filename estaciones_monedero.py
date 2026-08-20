@@ -169,10 +169,13 @@ def main(argv):
         print("%d factura(s) por descargar a mano desde el panel de Syntage:\n" % len(plan))
         for p in plan:
             # Nombre exacto que espera estado_cuenta_monedero.py: se puede
-            # copiar tal cual como nombre de archivo al guardar el PDF.
+            # copiar tal cual como nombre de archivo al guardar el PDF. La
+            # razón social se imprime aparte porque es lo que se busca en
+            # el panel de Syntage para ubicar al cliente — el RFC solo no
+            # basta para que un humano encuentre la cuenta correcta.
             nombre_archivo = "%s_%s_%s.pdf" % (p["rfc_cliente"], p["rfc_monedero"], p["mes"])
-            print("%-40s %-30s folio %s" % (
-                nombre_archivo, p["nombre_monedero"], p["folio_fiscal"]))
+            print("%-40s %-30s %-38s folio %s" % (
+                nombre_archivo, (p["nombre_cliente"] or "")[:38], p["nombre_monedero"], p["folio_fiscal"]))
     if sin_revisar:
         print("\n%d (cliente, monedero) no se pudo revisar:" % len(sin_revisar))
         for s in sin_revisar:
