@@ -8,6 +8,7 @@ descargas/
 prueba/
 *.pdf
 !assets/*.pdf
+*.xml
 
 # ── Secretos ─────────────────────────────────────────────────────────────────
 .env
