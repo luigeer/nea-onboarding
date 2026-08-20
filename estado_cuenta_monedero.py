@@ -25,13 +25,26 @@ calcula el propio monedero. Si la suma de los cargos que se lograron
 parsear no coincide, algo se leyó mal o incompleto — un PDF así se marca
 sospechoso en vez de usarse a medias, mismo principio que ya usa
 `bbva.cuadra()` para los estados de cuenta bancarios.
+**Por qué también se lee el XML, no solo el PDF.** El XML es el CFDI
+crudo: el mismo complemento, pero como atributos con nombre en vez de
+celdas de tabla. Sin la ambigüedad de `extract_tables()` ni el riesgo de
+un índice equivocado — se confirmó a mano contra un XML real que la suma
+de importes cuadra exacto contra el subtotal declarado. Si el panel de
+Syntage da a elegir, XML es preferible al PDF por esto mismo.
 """
 
 import glob
 import os
 import re
+import xml.etree.ElementTree as ET
 
 import pdfplumber
+
+_NS_XML = {
+    "cfdi": "http://www.sat.gob.mx/cfd/4",
+    "ecc12": "http://www.sat.gob.mx/EstadoDeCuentaCombustible12",
+    "tfd": "http://www.sat.gob.mx/TimbreFiscalDigital",
+}
 
 RE_RFC_EMISOR = re.compile(r"RFCemisor:\s*(\S+)")
 RE_RFC_RECEPTOR = re.compile(r"RFCreceptor:\s*(\S+)")
@@ -139,12 +152,64 @@ def leer_pdf(ruta):
     return {"encabezado": encabezado, "resumen": resumen, "cargos": cargos}
 
 
+def _parsear_complemento(raiz):
+    """Todo lo que trae el CFDI en XML: encabezado, resumen de cuenta y
+    cargos, leídos de sus atributos con nombre en vez de adivinar
+    columnas de una tabla. El folio fiscal es el UUID del sello del SAT
+    (TimbreFiscalDigital), no un dato del complemento en sí."""
+    emisor = raiz.find("cfdi:Emisor", _NS_XML)
+    receptor = raiz.find("cfdi:Receptor", _NS_XML)
+    timbre = raiz.find(".//tfd:TimbreFiscalDigital", _NS_XML)
+    encabezado = {
+        "rfc_emisor": emisor.get("Rfc") if emisor is not None else None,
+        "rfc_receptor": receptor.get("Rfc") if receptor is not None else None,
+        "folio_fiscal": timbre.get("UUID") if timbre is not None else None,
+    }
+
+    ecc = raiz.find(".//ecc12:EstadoDeCuentaCombustible", _NS_XML)
+    resumen = None
+    if ecc is not None:
+        resumen = {
+            "version": ecc.get("Version"),
+            "tipo_operacion": ecc.get("TipoOperacion"),
+            "numero_cuenta": ecc.get("NumeroDeCuenta"),
+            "subtotal": float(ecc.get("SubTotal")),
+            "total": float(ecc.get("Total")),
+        }
+
+    cargos = []
+    for c in raiz.findall(".//ecc12:ConceptoEstadoDeCuentaCombustible", _NS_XML):
+        fecha_hora = c.get("Fecha") or ""
+        fecha, _, hora = fecha_hora.partition("T")
+        cargos.append({
+            "identificador": c.get("Identificador"),
+            "fecha": fecha or None,
+            "hora": hora or None,
+            "rfc_estacion": c.get("Rfc"),
+            "clave_estacion": c.get("ClaveEstacion"),
+            "cantidad": float(c.get("Cantidad")) if c.get("Cantidad") else None,
+            "tipo_combustible": c.get("TipoCombustible"),
+            "nombre_combustible": c.get("NombreCombustible"),
+            "folio_operacion": c.get("FolioOperacion"),
+            "valor_unitario": float(c.get("ValorUnitario")) if c.get("ValorUnitario") else None,
+            "importe": float(c.get("Importe")) if c.get("Importe") else None,
+        })
+
+    return {"encabezado": encabezado, "resumen": resumen, "cargos": cargos}
+
+
+def leer_xml(ruta):
+    """El complemento leído directamente del CFDI en XML."""
+    return _parsear_complemento(ET.parse(ruta).getroot())
+
+
 def _partes_nombre(nombre_archivo):
-    """RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.pdf -> (rfc_cliente, rfc_monedero,
-    mes). El parser no depende de esto para leer el PDF —lee RFC y fechas
-    del propio documento—; es solo para organizar la descarga manual."""
+    """RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.pdf (o .xml) -> (rfc_cliente,
+    rfc_monedero, mes). El parser no depende de esto para leer el
+    archivo —lee RFC y fechas del propio documento—; es solo para
+    organizar la descarga manual."""
     nombre, ext = os.path.splitext(os.path.basename(nombre_archivo))
-    if ext.lower() != ".pdf":
+    if ext.lower() not in (".pdf", ".xml"):
         return None
     partes = nombre.split("_")
     if len(partes) != 3:
@@ -153,20 +218,26 @@ def _partes_nombre(nombre_archivo):
 
 
 def reporte_carpeta(carpeta):
-    """Lee todos los PDF de una carpeta y arma el reporte final: por
+    """Lee todos los PDF/XML de una carpeta y arma el reporte final: por
     cliente, cada mes con su monedero, estaciones agregadas y subtotal; y
-    los PDF sospechosos (no cuadraron, su nombre no sigue la convención, su
-    propio RFC no coincide con el del archivo, o no se pudieron leer) por
-    separado, nunca mezclados en el agregado.
+    los archivos sospechosos (no cuadraron, su nombre no sigue la
+    convención, su propio RFC no coincide con el del archivo, o no se
+    pudieron leer) por separado, nunca mezclados en el agregado.
 
-    Estos PDF llegan de un flujo manual: se descargan del panel de Syntage
-    (nombrados por UUID) y una persona los renombra a mano siguiendo la
-    convención RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.pdf. Un PDF malformado o un
-    desliz en ese renombrado no debe tumbar el resto del lote ni mezclar el
-    gasto de un cliente con el de otro en silencio — "se marca sospechoso
-    en vez de usarse a medias"."""
+    XML es preferible cuando el panel de Syntage lo permite (el CFDI
+    crudo, sin la ambigüedad de extraer tablas de un PDF); PDF sigue
+    soportado para lo que ya se haya bajado así.
+
+    Estos archivos llegan de un flujo manual: se descargan del panel de
+    Syntage (nombrados por UUID) y una persona los renombra a mano
+    siguiendo la convención RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.{pdf,xml}. Un
+    archivo malformado o un desliz en ese renombrado no debe tumbar el
+    resto del lote ni mezclar el gasto de un cliente con el de otro en
+    silencio — "se marca sospechoso en vez de usarse a medias"."""
     resultado = {}
-    for ruta in sorted(glob.glob(os.path.join(carpeta, "*.pdf"))):
+    rutas = sorted(glob.glob(os.path.join(carpeta, "*.pdf")) +
+                   glob.glob(os.path.join(carpeta, "*.xml")))
+    for ruta in rutas:
         partes = _partes_nombre(ruta)
         if partes is None:
             resultado.setdefault("_sin_clasificar", {"meses": {}, "sospechosos": []})
@@ -175,7 +246,8 @@ def reporte_carpeta(carpeta):
         rfc_cliente, rfc_monedero, mes = partes
         cliente = resultado.setdefault(rfc_cliente, {"meses": {}, "sospechosos": []})
         try:
-            datos = leer_pdf(ruta)
+            leer = leer_xml if ruta.lower().endswith(".xml") else leer_pdf
+            datos = leer(ruta)
             encabezado = datos["encabezado"]
             # El PDF trae su propia identidad (RFC emisor/receptor) leída
             # del contenido, no del nombre del archivo. Si no coincide con

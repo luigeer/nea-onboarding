@@ -217,6 +217,108 @@ check(any("no se pudo leer" in s for s in cliente_prueba["sospechosos"]),
       % cliente_prueba["sospechosos"])
 
 
+# ── _parsear_complemento(): el XML crudo del CFDI, no el PDF ───────────────
+# El XML trae el mismo complemento estandarizado por el SAT pero en forma
+# de atributos con nombre, sin la ambigüedad de extraer tablas de un PDF.
+# Se confirmó a mano contra un XML real (RFC y razón social cambiados aquí
+# a valores inventados): la forma de abajo es fiel al original, incluidas
+# las fechas ISO con "T" en vez de la fecha y hora pegadas del PDF.
+import xml.etree.ElementTree as ET
+
+XML_DE_PRUEBA = """<?xml version="1.0" encoding="utf-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:ecc12="http://www.sat.gob.mx/EstadoDeCuentaCombustible12"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital">
+  <cfdi:Emisor Rfc="FIC010101AB1" Nombre="FICTICIAWALLET" />
+  <cfdi:Receptor Rfc="CLI020202CD2" Nombre="CLIENTEDEPRUEBA" />
+  <cfdi:Complemento>
+    <ecc12:EstadoDeCuentaCombustible Version="1.2" TipoOperacion="Tarjeta"
+        NumeroDeCuenta="99999-1" SubTotal="865.40" Total="1003.86">
+      <ecc12:Conceptos>
+        <ecc12:ConceptoEstadoDeCuentaCombustible Identificador="1111"
+            Fecha="2026-03-09T15:14:27" Rfc="FIC120327XYZ" ClaveEstacion="9999999"
+            Cantidad="21.750" TipoCombustible="1" Unidad="LTS"
+            NombreCombustible="Magna" FolioOperacion="28667"
+            ValorUnitario="22.990" Importe="432.67" />
+        <ecc12:ConceptoEstadoDeCuentaCombustible Identificador="1111"
+            Fecha="2026-03-11T19:31:20" Rfc="OTR050101ABC" ClaveEstacion="1234567"
+            Cantidad="19.500" TipoCombustible="1" Unidad="LTS"
+            NombreCombustible="Magna" FolioOperacion="2987"
+            ValorUnitario="22.190" Importe="432.73" />
+      </ecc12:Conceptos>
+    </ecc12:EstadoDeCuentaCombustible>
+    <tfd:TimbreFiscalDigital UUID="11111111-2222-3333-4444-555555555555" />
+  </cfdi:Complemento>
+</cfdi:Comprobante>
+"""
+
+datos_xml = ecm._parsear_complemento(ET.fromstring(XML_DE_PRUEBA))
+
+check(datos_xml["encabezado"]["rfc_emisor"] == "FIC010101AB1",
+      "RFC emisor del XML: %r" % datos_xml["encabezado"]["rfc_emisor"])
+check(datos_xml["encabezado"]["rfc_receptor"] == "CLI020202CD2",
+      "RFC receptor del XML: %r" % datos_xml["encabezado"]["rfc_receptor"])
+check(datos_xml["encabezado"]["folio_fiscal"] == "11111111-2222-3333-4444-555555555555",
+      "folio fiscal (UUID del TimbreFiscalDigital): %r" % datos_xml["encabezado"]["folio_fiscal"])
+
+check(datos_xml["resumen"] == {"version": "1.2", "tipo_operacion": "Tarjeta",
+                                "numero_cuenta": "99999-1", "subtotal": 865.40, "total": 1003.86},
+      "resumen de cuenta del XML: %r" % datos_xml["resumen"])
+
+check(len(datos_xml["cargos"]) == 2, "dos cargos en el XML de prueba: %d" % len(datos_xml["cargos"]))
+c = datos_xml["cargos"][0]
+check(c["fecha"] == "2026-03-09" and c["hora"] == "15:14:27",
+      "fecha y hora se separan de la marca ISO (con 'T'): %r %r" % (c["fecha"], c["hora"]))
+check(c["rfc_estacion"] == "FIC120327XYZ" and c["clave_estacion"] == "9999999",
+      "RFC y clave de la estación: %r %r" % (c["rfc_estacion"], c["clave_estacion"]))
+check(c["cantidad"] == 21.750 and c["valor_unitario"] == 22.990 and c["importe"] == 432.67,
+      "litros, valor unitario e importe como float: %r %r %r"
+      % (c["cantidad"], c["valor_unitario"], c["importe"]))
+check(c["identificador"] == "1111" and c["tipo_combustible"] == "1"
+      and c["nombre_combustible"] == "Magna" and c["folio_operacion"] == "28667",
+      "los demás campos del cargo también se leen: %r" % c)
+
+check(ecm.cuadra(datos_xml["cargos"], datos_xml["resumen"]),
+      "los cargos del XML de prueba cuadran contra el subtotal declarado (432.67+432.73=865.40)")
+
+
+# ── leer_xml(): el mismo XML, ahora desde un archivo real ──────────────────
+_ruta_xml_prueba = os.path.join(tempfile.gettempdir(), "_prueba_estado_cuenta.xml")
+with open(_ruta_xml_prueba, "w", encoding="utf-8") as fh:
+    fh.write(XML_DE_PRUEBA)
+try:
+    datos_desde_archivo = ecm.leer_xml(_ruta_xml_prueba)
+finally:
+    os.remove(_ruta_xml_prueba)
+
+check(datos_desde_archivo == datos_xml,
+      "leer_xml(ruta) da lo mismo que _parsear_complemento sobre el mismo XML")
+
+
+# ── _partes_nombre(): también acepta .xml, no solo .pdf ────────────────────
+check(ecm._partes_nombre("LOG150312XX3_EFE8908015L3_2026-06.xml") ==
+      ("LOG150312XX3", "EFE8908015L3", "2026-06"),
+      "un nombre .xml también se acepta")
+
+
+# ── reporte_carpeta(): un archivo .xml se lee con leer_xml, no leer_pdf ────
+_CARPETA_XML_PRUEBA = tempfile.mkdtemp(prefix="_prueba_estado_cuenta_xml_")
+with open(os.path.join(_CARPETA_XML_PRUEBA, "CLI020202CD2_FIC010101AB1_2026-03.xml"),
+          "w", encoding="utf-8") as fh:
+    fh.write(XML_DE_PRUEBA)
+
+try:
+    reporte_xml = ecm.reporte_carpeta(_CARPETA_XML_PRUEBA)
+finally:
+    shutil.rmtree(_CARPETA_XML_PRUEBA, ignore_errors=True)
+
+cliente_xml = reporte_xml.get("CLI020202CD2", {"meses": {}, "sospechosos": []})
+check(("2026-03", "FIC010101AB1") in cliente_xml["meses"],
+      "reporte_carpeta() sí procesa un .xml (no solo .pdf): %r" % list(cliente_xml["meses"]))
+check(cliente_xml["sospechosos"] == [],
+      "el .xml de prueba cuadra y su encabezado coincide con el nombre: sin sospechosos")
+
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
