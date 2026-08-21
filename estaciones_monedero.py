@@ -14,9 +14,15 @@ como un complemento aparte. Este módulo detecta ese patrón por API, sin
 descargar nada, para no confundir una cosa con la otra.
 """
 
+import json
+import os
 from datetime import date, datetime, timedelta
 
+import db
+import monederos
 import syntage
+
+RAIZ = os.path.dirname(os.path.abspath(__file__))
 
 UMBRAL_MONTO_SIMBOLICO = 50.0
 
@@ -187,9 +193,92 @@ def plan_descarga(clientes, hoy=None):
     return plan, sin_revisar
 
 
-def main(argv):
-    import monederos
+def _ruta_json(folio):
+    return os.path.join(RAIZ, "out", "%s_monedero.json" % folio)
 
+
+def guardar_revision(folio, resultado):
+    """Persiste el resultado en out/{folio}_monedero.json. La descarga
+    manual entre Etapa 1 y Etapa 2 puede tardar días: sin esto, el plan y
+    la comisión de Etapa 1 se perderían en cuanto se cierre el navegador."""
+    ruta = _ruta_json(folio)
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    with open(ruta, "w", encoding="utf-8") as fh:
+        json.dump(resultado, fh, ensure_ascii=False, indent=2)
+
+
+def cargar_revision(folio):
+    """None si todavía no se ha corrido 'Revisar monedero' para este folio."""
+    ruta = _ruta_json(folio)
+    if not os.path.exists(ruta):
+        return None
+    with open(ruta, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def revisar_cliente(folio, hoy=None):
+    """Etapa 1 para un solo cliente, durante su onboarding: qué monedero(s)
+    reales tiene confirmados, qué descargar a mano de cada uno, y la
+    comisión ya calculable sin descargar nada. Persiste el resultado."""
+    hoy = hoy or date.today()
+    exp = db.cargar(folio)
+    rfc = monederos._rfc_de_expediente(exp)
+    if not rfc:
+        resultado = {"generado_etapa1": datetime.now().isoformat(),
+                     "generado_etapa2": None,
+                     "estado": "el cliente todavía no tiene RFC validado",
+                     "monederos": []}
+        guardar_revision(folio, resultado)
+        return resultado
+
+    try:
+        eid = syntage.id_entidad(rfc)
+    except LookupError:
+        eid, estado = None, "no está dado de alta en Syntage"
+    except syntage.ErrorSyntage as e:
+        eid, estado = None, "sin acceso a la entidad (%s)" % e
+    else:
+        hallazgos, estado = monederos.analizar_cliente(rfc, entidad_id=eid)
+
+    monederos_resultado = []
+    if eid:
+        ancla = _fecha_ancla(eid, hoy)
+        for h in hallazgos:
+            candidatas = facturas_candidatas(eid, h["rfc_monedero"])
+            es_real, por_mes = confirmar_monedero_real(candidatas, ancla)
+            plan = []
+            comision = {}
+            if es_real:
+                for mes, facturas in sorted(por_mes.items()):
+                    for factura in facturas:
+                        plan.append({
+                            "mes": mes,
+                            "folio_fiscal": factura["folio_fiscal"],
+                            "archivo_esperado": "%s_%s_%s.pdf" % (rfc, h["rfc_monedero"], mes),
+                        })
+                for c in comision_candidatas(eid, h["rfc_monedero"]):
+                    entrada = comision.setdefault(c["mes"], {"monto": 0.0, "folios_fiscales": []})
+                    entrada["monto"] += c["monto"]
+                    entrada["folios_fiscales"].append(c["folio_fiscal"])
+            monederos_resultado.append({
+                "rfc_monedero": h["rfc_monedero"],
+                "nombre_comercial": h["nombre_comercial"],
+                "es_real": es_real,
+                "plan_descarga": plan,
+                "comision": comision,
+                "reporte": None,
+                "sospechosos": [],
+            })
+
+    resultado = {"generado_etapa1": datetime.now().isoformat(),
+                 "generado_etapa2": None,
+                 "estado": estado,
+                 "monederos": monederos_resultado}
+    guardar_revision(folio, resultado)
+    return resultado
+
+
+def main(argv):
     if len(argv) < 2 or argv[1] != "plan":
         print("Uso: python estaciones_monedero.py plan")
         return 1

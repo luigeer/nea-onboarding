@@ -353,6 +353,110 @@ estaciones_monedero.syntage = _original_syntage
 check(ancla_con_falla == date(2026, 8, 19),
       "si consultar credenciales truena, se usa hoy en vez de tumbar el barrido")
 
+
+# ── revisar_cliente(): Etapa 1 completa para UN cliente, y su persistencia ─
+class _DbRevisarCliente(object):
+    @staticmethod
+    def cargar(folio, sb=None):
+        return {"cliente": {"validado": {"rfc": "CLI010101AB1"}}}
+
+
+class _MonederosRevisarCliente(object):
+    @staticmethod
+    def _rfc_de_expediente(exp):
+        return ((exp.get("cliente") or {}).get("validado") or {}).get("rfc")
+
+    @staticmethod
+    def analizar_cliente(rfc, entidad_id=None):
+        return ([{"rfc_monedero": "EFE8908015L3", "nombre_comercial": "Efecticard",
+                   "razon_social_monedero": "Efectivale", "monto": 500.0,
+                   "porcentaje_gasto": 0.04}], "ok")
+
+
+FACTURAS_REVISAR_CLIENTE = [
+    # Patrón simbólico mensual: confirma que es monedero real (junio y julio).
+    # Hora de mediodía UTC a propósito: no cruza la frontera de mes al
+    # convertir a hora local (-6h), a diferencia de la hora de frontera real
+    # que ya se prueba aparte en el bloque de _mes_facturacion.
+    {"uuid": "k1", "issuedAt": "2026-06-15 12:00:00", "type": "I", "subtotal": 1.0,
+     "items": [{"description": "CARGO ADMINISTRATIVO", "totalAmount": 1.0}]},
+    {"uuid": "k2", "issuedAt": "2026-07-15 12:00:00", "type": "I", "subtotal": 1.0,
+     "items": [{"description": "CARGO ADMINISTRATIVO", "totalAmount": 1.0}]},
+    # Comisión real, aparte del patrón simbólico: solo en junio.
+    {"uuid": "k3", "issuedAt": "2026-06-15 12:00:00", "type": "I", "subtotal": 10300.0,
+     "items": [{"description": "DISPERSION", "totalAmount": 10000.0},
+               {"description": "Cargo Administrativo", "totalAmount": 300.0}]},
+]
+
+
+class _SyntageRevisarCliente(object):
+    @staticmethod
+    def id_entidad(rfc):
+        return "eid-1"
+
+    @staticmethod
+    def estado_credenciales(entidad_id):
+        return []
+
+    @staticmethod
+    def facturas(entidad_id, rfc_emisor):
+        return FACTURAS_REVISAR_CLIENTE
+
+
+_original_db = estaciones_monedero.db
+_original_monederos = estaciones_monedero.monederos
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.db = _DbRevisarCliente
+estaciones_monedero.monederos = _MonederosRevisarCliente
+estaciones_monedero.syntage = _SyntageRevisarCliente
+
+resultado = estaciones_monedero.revisar_cliente("FOL-PRUEBA-001", hoy=date(2026, 8, 19))
+
+estaciones_monedero.db = _original_db
+estaciones_monedero.monederos = _original_monederos
+estaciones_monedero.syntage = _original_syntage
+
+check(resultado["estado"] == "ok", "el estado de analizar_cliente se propaga: %r" % resultado["estado"])
+check(len(resultado["monederos"]) == 1, "un monedero detectado: %d" % len(resultado["monederos"]))
+m = resultado["monederos"][0]
+check(m["rfc_monedero"] == "EFE8908015L3" and m["es_real"] is True,
+      "Efecticard confirmado como monedero real: %r" % m)
+check(len(m["plan_descarga"]) == 2,
+      "un renglón de descarga por mes confirmado (junio y julio): %d" % len(m["plan_descarga"]))
+check(m["plan_descarga"][0]["archivo_esperado"] == "CLI010101AB1_EFE8908015L3_2026-06.pdf",
+      "el nombre de archivo esperado sigue la convención: %r" % m["plan_descarga"][0]["archivo_esperado"])
+check(m["comision"] == {"2026-06": {"monto": 300.0, "folios_fiscales": ["k3"]}},
+      "la comisión de junio se detecta aparte del patrón simbólico: %r" % m["comision"])
+check(m["reporte"] is None, "Etapa 2 todavía no corrió")
+
+ruta = estaciones_monedero._ruta_json("FOL-PRUEBA-001")
+check(os.path.exists(ruta), "revisar_cliente persiste el resultado en out/")
+cargado = estaciones_monedero.cargar_revision("FOL-PRUEBA-001")
+check(cargado == resultado, "cargar_revision regresa exactamente lo que se guardó")
+os.remove(ruta)
+
+check(estaciones_monedero.cargar_revision("FOLIO-QUE-NO-EXISTE-PRUEBA") is None,
+      "sin archivo todavía, cargar_revision regresa None en vez de tronar")
+
+
+# ── revisar_cliente(): sin RFC validado, no truena ──────────────────────────
+class _DbSinRfc(object):
+    @staticmethod
+    def cargar(folio, sb=None):
+        return {"cliente": {}}
+
+
+_original_db = estaciones_monedero.db
+estaciones_monedero.db = _DbSinRfc
+resultado_sin_rfc = estaciones_monedero.revisar_cliente("FOL-SIN-RFC")
+estaciones_monedero.db = _original_db
+
+check(resultado_sin_rfc["monederos"] == [],
+      "sin RFC validado todavía no hay nada que revisar, y no truena")
+check("RFC" in resultado_sin_rfc["estado"],
+      "el estado explica por qué: %r" % resultado_sin_rfc["estado"])
+os.remove(estaciones_monedero._ruta_json("FOL-SIN-RFC"))
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))

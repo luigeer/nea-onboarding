@@ -224,9 +224,12 @@ class _MonederosRevisarCliente(object):
 
 FACTURAS_REVISAR_CLIENTE = [
     # Patrón simbólico mensual: confirma que es monedero real (junio y julio).
-    {"uuid": "k1", "issuedAt": "2026-06-01 05:59:59", "type": "I", "subtotal": 1.0,
+    # Hora de mediodía UTC a propósito: no cruza la frontera de mes al
+    # convertir a hora local (-6h), a diferencia de la hora de frontera real
+    # que ya se prueba aparte en el bloque de _mes_facturacion.
+    {"uuid": "k1", "issuedAt": "2026-06-15 12:00:00", "type": "I", "subtotal": 1.0,
      "items": [{"description": "CARGO ADMINISTRATIVO", "totalAmount": 1.0}]},
-    {"uuid": "k2", "issuedAt": "2026-07-01 05:59:59", "type": "I", "subtotal": 1.0,
+    {"uuid": "k2", "issuedAt": "2026-07-15 12:00:00", "type": "I", "subtotal": 1.0,
      "items": [{"description": "CARGO ADMINISTRATIVO", "totalAmount": 1.0}]},
     # Comisión real, aparte del patrón simbólico: solo en junio.
     {"uuid": "k3", "issuedAt": "2026-06-15 12:00:00", "type": "I", "subtotal": 10300.0,
