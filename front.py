@@ -196,7 +196,7 @@ def vista_cliente(folio, filas, cobs):
 
     tabs = st.tabs(["Score", "Perfil", "Observaciones", "Banco y fiscal",
                     "Documentos", "Historial", "Resumen ejecutivo",
-                    "Alta en la base operativa"])
+                    "Alta en la base operativa", "Monedero"])
 
     with tabs[0]:
         _tab_score(folio)
@@ -214,6 +214,8 @@ def vista_cliente(folio, filas, cobs):
         _tab_resumen(folio)
     with tabs[7]:
         _tab_alta(folio, exp)
+    with tabs[8]:
+        _tab_monedero(folio, exp)
 
 
 MODULOS = [("Perfil de empresa", "modulo_perfil", 0.20),
@@ -534,6 +536,113 @@ def _tab_alta(folio, exp):
     st.divider()
     with st.expander("Todo en texto plano"):
         st.code(ad.texto(exp), language=None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Monedero — adopción, estaciones y comisión del monedero de combustible
+# actual del cliente. A diferencia del resto de este front, SÍ escribe a
+# disco (out/{folio}_monedero.json): la descarga manual entre las dos
+# etapas puede tardar días, y st.session_state no sobrevive a que el
+# operador cierre el navegador. Ver spec en
+# docs/superpowers/specs/2026-08-20-monedero-seccion-cliente-design.md.
+# ─────────────────────────────────────────────────────────────────────────────
+def _tab_monedero(folio, exp):
+    import estaciones_monedero as em
+    import monederos
+
+    st.caption("Informativo — no bloquea el avance del expediente. Solo tiene "
+               "sentido correrlo mientras el cliente está en onboarding activo.")
+
+    revision = em.cargar_revision(folio)
+
+    if st.button("Revisar monedero" if revision is None else "Volver a revisar monedero"):
+        with st.spinner("Consultando Syntage..."):
+            try:
+                em.revisar_cliente(folio)
+            except Exception as e:
+                st.error("No se pudo: %s" % e)
+                return
+        st.rerun()
+
+    if revision is None:
+        st.write("Todavía no se ha revisado. El botón de arriba consulta "
+                 "Syntage (sin descargar nada) y dice si el cliente usa un "
+                 "monedero real, y cuánto le cobra de comisión.")
+        return
+
+    if not revision["monederos"]:
+        st.info("No se detectó monedero real en los últimos meses. (%s)"
+                 % revision["estado"])
+        return
+
+    rfc_cliente = monederos._rfc_de_expediente(exp)
+    for m in revision["monederos"]:
+        st.markdown("#### %s (%s)" % (m["nombre_comercial"], m["rfc_monedero"]))
+        if not m["es_real"]:
+            st.write("No confirmó el patrón de monedero real — parece compra "
+                     "directa en una gasolinera que también tiene monedero de marca.")
+            continue
+
+        if m["comision"]:
+            for mes, c in sorted(m["comision"].items()):
+                st.write("**Comisión %s:** $%s" % (mes, format(c["monto"], ",.2f")))
+
+        st.write("**Qué descargar del panel de Syntage:**")
+        import pandas as pd
+        st.dataframe(pd.DataFrame([{
+            "Mes": p["mes"], "Archivo esperado": p["archivo_esperado"],
+            "Folio fiscal": p["folio_fiscal"],
+        } for p in m["plan_descarga"]]), use_container_width=True, hide_index=True)
+
+        _tab_monedero_reporte(folio, rfc_cliente, m, revision)
+
+
+def _tab_monedero_reporte(folio, rfc_cliente, m, revision):
+    import estaciones_monedero as em
+    import estado_cuenta_monedero as ecm
+
+    if st.button("Leer descargas", key="leer_%s_%s" % (folio, m["rfc_monedero"])):
+        with st.spinner("Leyendo los PDF/XML descargados..."):
+            try:
+                reporte = ecm.reporte_cliente(rfc_cliente)
+                revision = em.actualizar_con_reporte(revision, reporte)
+                em.guardar_revision(folio, revision)
+            except Exception as e:
+                st.error("No se pudo: %s" % e)
+                return
+        st.rerun()
+
+    if not m["reporte"]:
+        st.caption("Todavía no se han leído descargas para este monedero.")
+        return
+
+    import pandas as pd
+    filas_mes, filas_estacion = [], []
+    for mes, d in sorted(m["reporte"].items()):
+        pct = d["porcentaje_comision"]
+        filas_mes.append({
+            "Mes": mes, "Total facturado": d["total_facturado"],
+            "% comisión": ("%.2f%%" % (pct * 100)) if pct is not None
+                          else "falta subir el complemento de este mes",
+        })
+        for e in d["por_estacion"]:
+            filas_estacion.append({"Mes": mes, "RFC estación": e["rfc_estacion"],
+                                    "Clave": e["clave_estacion"], "Cargas": e["cargas"],
+                                    "Litros": e["litros"], "Importe": e["importe"]})
+
+    st.write("**Por mes:**")
+    st.dataframe(pd.DataFrame(filas_mes), use_container_width=True, hide_index=True)
+
+    if filas_estacion:
+        estaciones_distintas = {(f["RFC estación"], f["Clave"]) for f in filas_estacion}
+        st.write("**Por estación** (%d distinta(s) en los meses leídos):" % len(estaciones_distintas))
+        st.dataframe(pd.DataFrame(filas_estacion), use_container_width=True, hide_index=True)
+
+    if m["sospechosos"]:
+        with st.expander("⚠ %d archivo(s) sospechoso(s) — no cuadraron o no se pudieron usar"
+                         % len(m["sospechosos"])):
+            for s in m["sospechosos"]:
+                st.write(s)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
