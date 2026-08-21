@@ -278,6 +278,34 @@ def revisar_cliente(folio, hoy=None):
     return resultado
 
 
+def actualizar_con_reporte(revision, reporte):
+    """Cruza el reporte de Etapa 2 (por (mes, rfc_monedero)) con la revisión
+    de Etapa 1: llena 'reporte' con total facturado, estaciones y el % de
+    comisión cuando ya se sabe la comisión de ese mes. Las claves compuestas
+    (tuplas) de reporte_cliente() se aplanan a algo serializable en JSON."""
+    for m in revision["monederos"]:
+        m["reporte"] = {}
+        for (mes, rfc_monedero), datos in reporte.get("meses", {}).items():
+            if rfc_monedero != m["rfc_monedero"]:
+                continue
+            comision_mes = m.get("comision", {}).get(mes)
+            porcentaje = None
+            if comision_mes and datos.get("subtotal"):
+                porcentaje = comision_mes["monto"] / datos["subtotal"]
+            m["reporte"][mes] = {
+                "total_facturado": datos.get("subtotal"),
+                "porcentaje_comision": porcentaje,
+                "por_estacion": [
+                    {"rfc_estacion": rfc_est, "clave_estacion": clave_est,
+                     "cargas": a["cargas"], "litros": a["litros"], "importe": a["importe"]}
+                    for (rfc_est, clave_est), a in (datos.get("por_estacion") or {}).items()
+                ],
+            }
+        m["sospechosos"] = reporte.get("sospechosos", [])
+    revision["generado_etapa2"] = datetime.now().isoformat()
+    return revision
+
+
 def main(argv):
     if len(argv) < 2 or argv[1] != "plan":
         print("Uso: python estaciones_monedero.py plan")

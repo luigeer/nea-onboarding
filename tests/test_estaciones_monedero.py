@@ -457,6 +457,64 @@ check("RFC" in resultado_sin_rfc["estado"],
       "el estado explica por qué: %r" % resultado_sin_rfc["estado"])
 os.remove(estaciones_monedero._ruta_json("FOL-SIN-RFC"))
 
+
+# ── actualizar_con_reporte(): cruza Etapa 1 (comisión) con Etapa 2 (total) ─
+REVISION_DE_PRUEBA = {
+    "generado_etapa1": "2026-08-20T22:00:00", "generado_etapa2": None,
+    "estado": "ok",
+    "monederos": [
+        {"rfc_monedero": "EFE8908015L3", "nombre_comercial": "Efecticard",
+         "es_real": True,
+         "plan_descarga": [{"mes": "2026-06", "folio_fiscal": "k1",
+                             "archivo_esperado": "CLI010101AB1_EFE8908015L3_2026-06.pdf"}],
+         "comision": {"2026-06": {"monto": 300.0, "folios_fiscales": ["k3"]}},
+         "reporte": None, "sospechosos": []},
+    ],
+}
+
+REPORTE_DE_PRUEBA = {
+    "meses": {
+        ("2026-06", "EFE8908015L3"): {
+            "rfc_monedero": "EFE8908015L3",
+            "por_estacion": {("FIC120327XYZ", "9999999"): {"cargas": 2, "litros": 41.25, "importe": 865.40}},
+            "subtotal": 10000.0,
+        },
+    },
+    "sospechosos": ["ruta/a/un/archivo_sospechoso.pdf"],
+}
+
+actualizada = estaciones_monedero.actualizar_con_reporte(REVISION_DE_PRUEBA, REPORTE_DE_PRUEBA)
+
+check(actualizada["generado_etapa2"] is not None, "se marca cuándo corrió la Etapa 2")
+m = actualizada["monederos"][0]
+check(m["reporte"]["2026-06"]["total_facturado"] == 10000.0,
+      "el total facturado sale del subtotal del reporte de Etapa 2: %r" % m["reporte"])
+check(abs(m["reporte"]["2026-06"]["porcentaje_comision"] - 0.03) < 0.0001,
+      "el %% de comisión es la comisión de Etapa 1 sobre el total de Etapa 2 (300/10000=3%%): %r"
+      % m["reporte"]["2026-06"]["porcentaje_comision"])
+check(m["reporte"]["2026-06"]["por_estacion"] ==
+      [{"rfc_estacion": "FIC120327XYZ", "clave_estacion": "9999999",
+        "cargas": 2, "litros": 41.25, "importe": 865.40}],
+      "por_estacion se aplana a una lista (las claves tupla no son JSON-serializables): %r"
+      % m["reporte"]["2026-06"]["por_estacion"])
+check(m["sospechosos"] == ["ruta/a/un/archivo_sospechoso.pdf"],
+      "los sospechosos de Etapa 2 se copian al monedero")
+
+# Un mes con comisión de Etapa 1 pero SIN total de Etapa 2 (no se subió ese
+# complemento todavía): no se calcula el %, nunca se divide contra nada.
+REVISION_MES_SIN_ETAPA2 = {
+    "generado_etapa1": "2026-08-20T22:00:00", "generado_etapa2": None, "estado": "ok",
+    "monederos": [
+        {"rfc_monedero": "EFE8908015L3", "nombre_comercial": "Efecticard", "es_real": True,
+         "plan_descarga": [], "comision": {"2026-07": {"monto": 450.0, "folios_fiscales": ["k4"]}},
+         "reporte": None, "sospechosos": []},
+    ],
+}
+REPORTE_VACIO = {"meses": {}, "sospechosos": []}
+actualizada_vacia = estaciones_monedero.actualizar_con_reporte(REVISION_MES_SIN_ETAPA2, REPORTE_VACIO)
+check(actualizada_vacia["monederos"][0]["reporte"] == {},
+      "sin ningún mes leído en Etapa 2, el reporte queda vacío, no inventa un mes con % en None")
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
