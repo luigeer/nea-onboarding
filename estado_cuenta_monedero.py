@@ -275,6 +275,13 @@ def reporte_carpeta(carpeta):
     return resultado
 
 
+def reporte_cliente(rfc_cliente, carpeta="descargas/monederos"):
+    """reporte_carpeta() filtrado a un solo cliente. No decide nada de
+    comisión: eso ya lo tiene Etapa 1 (estaciones_monedero.revisar_cliente)."""
+    reporte = reporte_carpeta(carpeta)
+    return reporte.get(rfc_cliente, {"meses": {}, "sospechosos": []})
+
+
 def main(argv):
     if len(argv) < 3 or argv[1] != "reporte":
         print("Uso: python estado_cuenta_monedero.py reporte <carpeta>")

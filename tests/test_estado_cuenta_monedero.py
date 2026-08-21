@@ -319,6 +319,36 @@ check(cliente_xml["sospechosos"] == [],
       "el .xml de prueba cuadra y su encabezado coincide con el nombre: sin sospechosos")
 
 
+# ── reporte_cliente(): reporte_carpeta() filtrado a un solo cliente ────────
+XML_OTRO_CLIENTE = XML_DE_PRUEBA.replace(
+    'Rfc="CLI020202CD2" Nombre="CLIENTEDEPRUEBA"',
+    'Rfc="OTR999999XX9" Nombre="OTROCLIENTE"')
+
+_CARPETA_MULTI_CLIENTE = tempfile.mkdtemp(prefix="_prueba_reporte_cliente_")
+with open(os.path.join(_CARPETA_MULTI_CLIENTE, "CLI020202CD2_FIC010101AB1_2026-03.xml"),
+          "w", encoding="utf-8") as fh:
+    fh.write(XML_DE_PRUEBA)
+with open(os.path.join(_CARPETA_MULTI_CLIENTE, "OTR999999XX9_FIC010101AB1_2026-03.xml"),
+          "w", encoding="utf-8") as fh:
+    fh.write(XML_OTRO_CLIENTE)
+
+try:
+    reporte_un_cliente = ecm.reporte_cliente("CLI020202CD2", _CARPETA_MULTI_CLIENTE)
+finally:
+    shutil.rmtree(_CARPETA_MULTI_CLIENTE, ignore_errors=True)
+
+check(("2026-03", "FIC010101AB1") in reporte_un_cliente["meses"],
+      "trae el mes de ESTE cliente: %r" % list(reporte_un_cliente["meses"]))
+check(len(reporte_un_cliente["meses"]) == 1,
+      "no trae el mes del OTRO cliente que vive en la misma carpeta: %d"
+      % len(reporte_un_cliente["meses"]))
+
+reporte_sin_archivos = ecm.reporte_cliente("NADIE0000XXX", tempfile.mkdtemp(prefix="_prueba_vacia_"))
+check(reporte_sin_archivos == {"meses": {}, "sospechosos": []},
+      "un cliente sin ningún archivo descargado regresa forma vacía, no truena: %r"
+      % reporte_sin_archivos)
+
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
