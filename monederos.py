@@ -13,9 +13,9 @@ que sí puede vivir en este repo. Los RFC de los prospectos, no: por eso el
 cruce se corre contra Supabase y el resultado se ve en pantalla, no se commitea.
 
 Esto responde las primeras dos preguntas —¿usa monedero? ¿cuál?— con lo que ya
-trae `supplier-concentration`. La comisión que cobra cada monedero es una
-pregunta aparte: requiere el detalle de conceptos del CFDI, que todavía no se
-ha confirmado que Syntage exponga.
+trae `supplier-concentration`. La comisión que cobra cada monedero se resuelve
+con `estaciones_monedero.comision_candidatas()`: viene en un concepto de
+factura aparte ("Cargo Administrativo") que sí expone la API de Syntage.
 
 Uso:
     python monederos.py padron              lista el padrón completo

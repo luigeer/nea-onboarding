@@ -64,6 +64,30 @@ def facturas_candidatas(entidad_id, rfc_monedero):
     return candidatas
 
 
+def comision_candidatas(entidad_id, rfc_monedero):
+    """Conceptos de 'Cargo Administrativo' con monto real: la comisión que
+    cobra el monedero. Es una factura distinta (o un concepto dentro de una
+    factura de dispersión) al CFDI de $1 que solo confirma el patrón de
+    facturas_candidatas() — un monedero puede tener una sin la otra en el
+    mismo mes, así que no se filtran juntas."""
+    candidatas = []
+    for f in syntage.facturas(entidad_id, rfc_monedero):
+        if f.get("type") != "I":
+            continue
+        issued_at = f.get("issuedAt") or ""
+        for item in f.get("items") or []:
+            desc = (item.get("description") or "").strip().lower()
+            monto = item.get("totalAmount")
+            if desc == "cargo administrativo" and (monto or 0) >= UMBRAL_MONTO_SIMBOLICO:
+                candidatas.append({
+                    "mes": _mes_facturacion(issued_at) if issued_at else "",
+                    "folio_fiscal": f.get("uuid"),
+                    "monto": monto,
+                    "fecha": f.get("issuedAt"),
+                })
+    return candidatas
+
+
 def _ultimos_n_meses(hoy, n):
     meses = []
     anio, mes = hoy.year, hoy.month

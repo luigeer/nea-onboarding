@@ -90,6 +90,43 @@ check(candidatas_frontera[0]["mes"] == "2023-03",
       "2023-04-01 05:59:59 UTC son las 23:59:59 del 31 de marzo en Ciudad de "
       "México: el mes es marzo, no abril: %r" % candidatas_frontera[0]["mes"])
 
+# ── comision_candidatas(): el concepto "Cargo Administrativo" con monto real ─
+# Confirmado contra datos reales: la comisión es un concepto de factura
+# aparte del CFDI de $1 que solo confirma el patrón. Cuando viene junto con
+# un concepto DISPERSION en la misma factura, el subtotal de la factura
+# completa (dispersión + comisión) no es simbólico, así que esa factura no
+# aparece en facturas_candidatas() — son señales distintas, no la misma.
+FACTURAS_CON_COMISION = [
+    {"uuid": "j1", "issuedAt": "2026-06-15 12:00:00", "type": "I", "subtotal": 10300.0,
+     "items": [{"description": "DISPERSION", "totalAmount": 10000.0},
+               {"description": "Cargo Administrativo", "totalAmount": 300.0}]},
+    {"uuid": "j2", "issuedAt": "2026-07-01 05:59:59", "type": "I", "subtotal": 1.0,
+     "items": [{"description": "CARGO ADMINISTRATIVO", "totalAmount": 1.0}]},
+    {"uuid": "j3", "issuedAt": "2026-07-15 12:00:00", "type": "I", "subtotal": 60000.0,
+     "items": [{"description": "DISPERSION", "totalAmount": 60000.0}]},
+    {"uuid": "j4-pago", "issuedAt": "2026-07-20 12:00:00", "type": "P", "subtotal": 900.0,
+     "items": [{"description": "Cargo Administrativo", "totalAmount": 900.0}]},
+]
+
+
+class _SyntageComision(object):
+    @staticmethod
+    def facturas(entidad_id, rfc_emisor):
+        return FACTURAS_CON_COMISION
+
+
+_original_syntage = estaciones_monedero.syntage
+estaciones_monedero.syntage = _SyntageComision
+candidatas_comision = estaciones_monedero.comision_candidatas("cualquier-id", "EFE8908015L3")
+estaciones_monedero.syntage = _original_syntage
+
+check(len(candidatas_comision) == 1,
+      "solo el Cargo Administrativo de monto real y tipo Ingreso cuenta: %d" % len(candidatas_comision))
+check(candidatas_comision[0]["folio_fiscal"] == "j1" and candidatas_comision[0]["monto"] == 300.0,
+      "el monto es el del concepto, no el subtotal de la factura completa (10300): %r"
+      % candidatas_comision[0])
+check(candidatas_comision[0]["mes"] == "2026-06", "el mes sale de issuedAt: %r" % candidatas_comision[0]["mes"])
+
 # ── confirmar_monedero_real(): patrón mensual sobre una ventana fija ───────
 HOY = date(2026, 8, 19)
 
