@@ -624,6 +624,84 @@ def cmd_riesgo(folio, forzar=False):
     return 0
 
 
+def cmd_estados(folio):
+    """Baja los estados de cuenta de la carpeta canonica del expediente,
+    identifica el banco de cada uno, valida sus totales y guarda lo que
+    cuadra en la tabla `estados_cuenta`.
+
+    Un PDF que no cuadra con ningun banco conocido se reporta aparte: nunca
+    se descarta en silencio.
+    """
+    import tempfile
+
+    import bancos
+    import drive_cliente
+
+    exp = cargar(folio)
+    razon = exp["cliente"]["validado"].get("razon_social") or folio
+    titulo("%s — %s" % (razon, folio))
+
+    svc = drive_cliente.servicio()
+    # documentos_cliente() ya excluye carpetas; no se filtra por tipo aqui —
+    # un comprobante subido como imagen debe intentarse igual y, si ningun
+    # parser lo reconoce, aparecer en "no reconocidos", no desaparecer.
+    docs = drive_cliente.documentos_cliente(svc, folio)
+    if not docs:
+        print("  No hay documentos en la carpeta '1 Documentos del cliente'.")
+        return 1
+
+    sb = None
+    if hay_supabase():
+        import db
+        sb = db.cliente()
+    else:
+        print("  AVISO: Supabase no esta configurado. Se identifican los")
+        print("  estados de cuenta pero no se guardan.\n")
+
+    rfc_cliente = exp["cliente"]["validado"].get("rfc")
+    guardados, no_reconocidos = [], []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for d in docs:
+            ruta = os.path.join(tmp, d["name"])
+            drive_cliente.descargar(svc, d["id"], ruta)
+            resultado = bancos.identificar(ruta)
+            if resultado["banco"] is None:
+                no_reconocidos.append(d["name"])
+                continue
+            enc = resultado["encabezado"]
+            fila = bancos.fila_estados_cuenta(folio, enc, drive_file_id=d["id"])
+            if sb:
+                bancos.guardar(sb, fila)
+            guardados.append((fila, enc))
+
+    titulo("Resultado")
+    print("  Documentos revisados: %d" % len(docs))
+    print("  Estados guardados:   %d" % len(guardados))
+    if no_reconocidos:
+        print("  No reconocidos:")
+        for nombre in no_reconocidos:
+            print("    · %s (revisar a mano: ¿es un banco sin soporte?)" % nombre)
+
+    if guardados:
+        agrupadas = {}
+        for fila, enc in guardados:
+            clave = (fila["banco"], fila["cuenta"])
+            grupo = agrupadas.setdefault(clave, {
+                "banco": fila["banco"], "clabe": enc.get("clabe"),
+                "titular_es_cliente": (enc.get("rfc") == rfc_cliente)
+                                       if enc.get("rfc") else None,
+                "periodos": []})
+            if fila["fecha_final"]:
+                periodo = fila["fecha_final"][:7]
+                if periodo not in grupo["periodos"]:
+                    grupo["periodos"].append(periodo)
+        exp["cuentas_bancarias"] = list(agrupadas.values())
+        guardar(exp)
+
+    return 0
+
+
 def cmd_solicitud(folio):
     """El texto corto que ventas le reenvía al cliente."""
     import db
@@ -1115,6 +1193,8 @@ def main(argv):
             return cmd_subir(args[0])
         if orden == "riesgo" and args:
             return cmd_riesgo(args[0], forzar="--forzar" in args)
+        if orden == "estados" and len(args) == 1:
+            return cmd_estados(args[0])
         if orden == "solicitud" and len(args) == 1:
             return cmd_solicitud(args[0])
         if orden == "perfil" and len(args) == 1:
