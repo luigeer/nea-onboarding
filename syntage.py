@@ -361,6 +361,20 @@ def extraccion_completa(rfc):
     return (not pendientes), pendientes
 
 
+def decidir_fiscal(entidad, completa, pendientes):
+    """Si 'nea.py fiscal' debe seguir, o avisar y parar — y por que.
+
+    Nunca crea la entidad en Syntage: darse de alta ahi requiere que el
+    cliente meta sus propias credenciales del SAT, no es algo que la
+    plataforma pueda hacer por el.
+    """
+    if entidad is None:
+        return {"continuar": False, "razon": "sin_entidad"}
+    if not completa:
+        return {"continuar": False, "razon": "pendiente", "pendientes": pendientes}
+    return {"continuar": True}
+
+
 def extraer_todo(entidad_id, recursos=None, desde="2019-01-01", hasta=None):
     """Barre todos los insights y devuelve {recurso: payload} más los fallos.
 
