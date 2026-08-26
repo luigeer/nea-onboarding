@@ -98,3 +98,9 @@ check("titular" not in fila and "rfc" not in fila,
 fila_sin_cuenta = bancos.fila_estados_cuenta("MEZA-01", {"banco": "BBVA"})
 check(fila_sin_cuenta["cuenta"] is None,
       "sin numero de cuenta en el encabezado, la fila no revienta")
+
+print()
+if fallas:
+    print("%d prueba(s) fallaron" % len(fallas))
+    sys.exit(1)
+print("Todas las pruebas pasaron.")
