@@ -17,6 +17,8 @@ este usa por dentro.
     python nea.py drive                    revisa las credenciales de Drive
     python nea.py solicitud <FOLIO>        la lista de faltantes para ventas
     python nea.py perfil <FOLIO>           deriva el perfil y captura lo que falta
+    python nea.py estados <FOLIO>          procesa estados de cuenta de Drive a Supabase
+    python nea.py fiscal <FOLIO>           extrae y guarda los datos fiscales de Syntage
     python nea.py riesgo <FOLIO>           corre el modelo y guarda el score
     python nea.py resumen <FOLIO>          el resumen ejecutivo para comité
     python nea.py firma <FOLIO>            prepara el paquete para WeeTrust
@@ -670,6 +672,12 @@ def cmd_estados(folio):
                 no_reconocidos.append(d["name"])
                 continue
             enc = resultado["encabezado"]
+            if not enc.get("fecha_final"):
+                # Sin fecha de corte no hay periodo que guardar ni con que
+                # deduplicar en una corrida futura: se reporta como no
+                # reconocido en vez de insertar una fila indistinguible.
+                no_reconocidos.append("%s (sin fecha de corte legible)" % d["name"])
+                continue
             fila = bancos.fila_estados_cuenta(folio, enc, drive_file_id=d["id"])
             if sb:
                 bancos.guardar(sb, fila)
@@ -677,7 +685,7 @@ def cmd_estados(folio):
 
     titulo("Resultado")
     print("  Documentos revisados: %d" % len(docs))
-    print("  Estados guardados:   %d" % len(guardados))
+    print("  Estados %s:   %d" % ("guardados" if sb else "identificados", len(guardados)))
     if no_reconocidos:
         print("  No reconocidos:")
         for nombre in no_reconocidos:
@@ -687,15 +695,21 @@ def cmd_estados(folio):
         agrupadas = {}
         for fila, enc in guardados:
             clave = (fila["banco"], fila["cuenta"])
+            rfc_estado = enc.get("rfc")
+            # Solo se afirma si la cuenta es o no del cliente cuando hay algo
+            # que comparar de los dos lados; si falta cualquiera, queda en
+            # None ("no se pudo confirmar"), nunca en False por defecto —
+            # eso es lo que validador._coherencia distingue.
+            titular_es_cliente = ((rfc_estado == rfc_cliente)
+                                   if (rfc_estado and rfc_cliente) else None)
             grupo = agrupadas.setdefault(clave, {
-                "banco": fila["banco"], "clabe": enc.get("clabe"),
-                "titular_es_cliente": (enc.get("rfc") == rfc_cliente)
-                                       if enc.get("rfc") else None,
+                "banco": fila["banco"], "cuenta": fila["cuenta"],
+                "clabe": enc.get("clabe"), "titular": enc.get("titular"),
+                "titular_es_cliente": titular_es_cliente,
                 "periodos": []})
-            if fila["fecha_final"]:
-                periodo = fila["fecha_final"][:7]
-                if periodo not in grupo["periodos"]:
-                    grupo["periodos"].append(periodo)
+            periodo = fila["fecha_final"][:7]
+            if periodo not in grupo["periodos"]:
+                grupo["periodos"].append(periodo)
         exp["cuentas_bancarias"] = list(agrupadas.values())
         guardar(exp)
 

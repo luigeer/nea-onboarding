@@ -367,13 +367,23 @@ def _coherencia(exp, r):
 
     rfc_cliente = _get(exp, "cliente.validado.rfc")
     for c in _get(exp, "cuentas_bancarias", []):
-        if not c.get("titular_es_cliente"):
+        titular_ok = c.get("titular_es_cliente")
+        if titular_ok is False:
             r.anotar(ALTA, "Estados de cuenta a nombre de otra entidad",
                      "La cuenta de %s está a nombre de %s, no del cliente. El "
                      "análisis de riesgo quedaría sobre el flujo de otra empresa."
                      % (c.get("banco") or "?", c.get("titular") or "?"),
                      pedir=("Estados de cuenta a nombre de la empresa solicitante, "
                             "no de una filial ni de la tenedora"),
+                     tipo="coherencia")
+        elif titular_ok is None:
+            # Ni el RFC del estado de cuenta ni el del cliente estaban
+            # disponibles para comparar — no es evidencia de que sea de otra
+            # entidad, solo que todavia no se pudo confirmar.
+            r.anotar(BAJA, "No se pudo confirmar el titular de la cuenta",
+                     "La cuenta de %s no trae RFC que comparar contra el "
+                     "cliente, o el cliente aun no tiene RFC validado."
+                     % (c.get("banco") or "?"),
                      tipo="coherencia")
 
     os_rfc = (_get(exp, "obligado_solidario.rfc")

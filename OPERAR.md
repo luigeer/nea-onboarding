@@ -78,11 +78,18 @@ carpeta y copiando; no está automatizado porque cada vendedor organiza distinto
 ```bash
 python nea.py estado LLOSA-01        # qué falta y de qué gravedad
 python nea.py solicitud LLOSA-01     # el texto que ventas le reenvía al cliente
+python nea.py estados LLOSA-01       # procesa los estados de cuenta de Drive a Supabase
 ```
 
 La solicitud sale numerada, agrupada por empresa —cliente y obligado solidario
 juntos— y sin jerga. Se manda **una sola vez**: cada vuelta de solicitudes es una
 oportunidad de perder al cliente.
+
+`estados` baja los documentos de la carpeta canónica de Drive, identifica
+cuáles son estados de cuenta de un banco soportado, valida sus totales contra
+lo que el propio banco declara, y guarda lo que cuadra en Supabase. Lo que no
+se reconoce se lista aparte, para revisar a mano — nunca se descarta en
+silencio.
 
 ### 4. Buró de crédito — **tú**
 
@@ -93,8 +100,15 @@ guarda el PDF.
 
 ### 5. Syntage
 
-Extrae los 29 recursos del SAT y guarda todo, no solo lo que el modelo consume.
-Requiere que el cliente haya autorizado su CIEC en Syntage.
+```bash
+python nea.py fiscal LLOSA-01
+```
+
+Busca al cliente en Syntage por su RFC —nunca lo da de alta ahí: eso requiere
+que el cliente meta sus propias credenciales del SAT—. Si no está dado de
+alta, o si la extracción sigue corriendo, avisa y no continúa. Si ya está
+completa, extrae los 29 recursos del SAT y guarda todo, no solo lo que el
+modelo consume.
 
 ### 6. Perfil de empresa
 
