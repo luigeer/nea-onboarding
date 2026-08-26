@@ -81,14 +81,22 @@ def guardar(sb, fila):
     arbitro de conflicto. Se busca la fila existente por su llave natural y
     se actualiza o se inserta, en vez de depender de ON CONFLICT.
 
+    banco/cuenta pueden venir en None si el encabezado no los pudo leer; el
+    cliente de Supabase serializa .eq(col, None) como el texto literal
+    "eq.None" (nunca compara con NULL de verdad), asi que esos dos campos se
+    filtran con .is_() cuando son None y con .eq() cuando no.
+
     Devuelve "insertada" o "actualizada".
     """
-    existente = (sb.table("estados_cuenta").select("id")
-                 .eq("folio", fila["folio"])
-                 .eq("banco", fila["banco"])
-                 .eq("cuenta", fila["cuenta"])
-                 .eq("fecha_final", fila["fecha_final"])
-                 .execute().data)
+    def _filtrar(query, columna, valor):
+        return query.is_(columna, "null") if valor is None else query.eq(columna, valor)
+
+    q = sb.table("estados_cuenta").select("id").eq("folio", fila["folio"])
+    q = _filtrar(q, "banco", fila["banco"])
+    q = _filtrar(q, "cuenta", fila["cuenta"])
+    q = q.eq("fecha_final", fila["fecha_final"])
+    existente = q.execute().data
+
     if existente:
         sb.table("estados_cuenta").update(fila).eq("id", existente[0]["id"]).execute()
         return "actualizada"
