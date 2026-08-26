@@ -70,3 +70,27 @@ def fila_estados_cuenta(folio, encabezado, drive_file_id=None):
         "monto_retiros": encabezado.get("monto_retiros"),
         "drive_file_id": drive_file_id,
     }
+
+
+def guardar(sb, fila):
+    """Guarda una fila en `estados_cuenta`, sin duplicar el mismo periodo.
+
+    La tabla tiene un indice unico sobre expresiones
+    (coalesce(banco,''), coalesce(cuenta,'')), no sobre columnas planas, asi
+    que un upsert(on_conflict=...) de PostgREST no encuentra ese indice como
+    arbitro de conflicto. Se busca la fila existente por su llave natural y
+    se actualiza o se inserta, en vez de depender de ON CONFLICT.
+
+    Devuelve "insertada" o "actualizada".
+    """
+    existente = (sb.table("estados_cuenta").select("id")
+                 .eq("folio", fila["folio"])
+                 .eq("banco", fila["banco"])
+                 .eq("cuenta", fila["cuenta"])
+                 .eq("fecha_final", fila["fecha_final"])
+                 .execute().data)
+    if existente:
+        sb.table("estados_cuenta").update(fila).eq("id", existente[0]["id"]).execute()
+        return "actualizada"
+    sb.table("estados_cuenta").insert(fila).execute()
+    return "insertada"
