@@ -316,7 +316,7 @@ def compuertas_generacion(exp):
 def documentos_aplicables(exp):
     """Lista de claves de documento que corresponden a este expediente."""
     tipo = _get(exp, "tipo_cliente")
-    docs = ["contrato"]
+    docs = ["contrato" if tipo == "persona_moral" else "contrato_pfae"]
 
     if tipo == "persona_moral":
         docs.append("pld_pm")

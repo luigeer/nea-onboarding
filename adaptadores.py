@@ -99,6 +99,25 @@ def para_contrato(exp):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 1b. Contrato de crédito — PFAE, sin representante legal de por medio
+# ─────────────────────────────────────────────────────────────────────────────
+def para_contrato_pfae(exp):
+    val = _get(exp, "cliente.validado", {})
+    rep = _get(exp, "representante_legal.validado", {})
+    aut = _get(exp, "credito.autorizada", {})
+    razon = val.get("razon_social")
+    return {
+        "nombre_pf": rep.get("nombre_registral") or _apellidos_primero(rep.get("nombre")),
+        "curp": rep.get("curp"),
+        "nombre_comercial": (val.get("nombre_comercial") or razon or "").upper(),
+        "rfc": rep.get("rfc") or val.get("rfc"),
+        "linea_credito": _moneda(aut.get("linea")),
+        "mensualidad": _moneda(aut.get("mensualidad")),
+        "firma_nombre": (rep.get("nombre") or "").upper(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 2. Expediente PLD — Anexo 4, persona moral
 # ─────────────────────────────────────────────────────────────────────────────
 def para_pld_pm(exp):
@@ -376,6 +395,7 @@ def _id_oficial(tipo_texto):
 
 _CRUDOS = {
     "contrato": para_contrato,
+    "contrato_pfae": para_contrato_pfae,
     "pld_pm": para_pld_pm,
     "pld_pf": para_pld_pf,
     "beneficiario_controlador": para_beneficiario,

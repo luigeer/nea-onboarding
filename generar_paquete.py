@@ -29,6 +29,7 @@ from schema_expediente import (compuertas_generacion, documentos_aplicables, _ge
 from adaptadores import ADAPTADORES
 
 from generar_contrato import fill_contrato
+from generar_contrato_pfae import fill_contrato_pfae
 from generar_pld import generar_pld
 from generar_pld_pf import generar_pld_pf
 from generar_beneficiario import generar_beneficiario
@@ -55,6 +56,8 @@ NEA_CUMPLIMIENTO = {"rol": "cumplimiento", "nombre": "Marcos Siqueiros Ballester
 CATALOGO = {
     "contrato": ("Contrato", fill_contrato, "Contrato_Vacio.pdf",
                  "Carátula del Contrato de Crédito"),
+    "contrato_pfae": ("Contrato", fill_contrato_pfae, "Contrato_Vacio_PFAE.pdf",
+                      "Carátula del Contrato de Crédito (persona física)"),
     "pld_pm": ("PLD", generar_pld, None,
                "Formato de Identificación PLD (Anexo 4, persona moral)"),
     "pld_pf": ("PLD", generar_pld_pf, None,
@@ -100,7 +103,7 @@ def _firmantes(clave, exp):
         cumplimiento.update({"nombre": resp["nombre"],
                              "cargo": resp.get("cargo") or NEA_CUMPLIMIENTO["cargo"]})
 
-    if clave == "contrato":
+    if clave in ("contrato", "contrato_pfae"):
         return [cliente] + cofirmantes + [NEA_FIRMANTE]
     if clave in ("pld_pm", "pld_pf"):
         return [cliente] + cofirmantes

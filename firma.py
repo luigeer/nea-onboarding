@@ -41,11 +41,12 @@ IDENTIDAD = "identidad_y_background"
 
 # El orden dentro del PDF unido. Importa porque las divisiones son rangos de
 # página contiguos: si el orden cambia, los rangos dejan de cerrar.
-ORDEN = ["contrato", "adenda_os_pm", "adenda_os_pf", "beneficiario_controlador",
+ORDEN = ["contrato", "contrato_pfae", "adenda_os_pm", "adenda_os_pf", "beneficiario_controlador",
          "pld_pm", "pld_pf", "anexo_razonado", "domiciliacion"]
 
 ETIQUETAS = {
     "contrato": "Carátula del Contrato de Crédito",
+    "contrato_pfae": "Carátula del Contrato de Crédito",
     "adenda_os_pm": "Adenda de Obligado Solidario (persona moral)",
     "adenda_os_pf": "Adenda de Obligado Solidario (persona física)",
     "beneficiario_controlador": "Formato de Beneficiario Controlador",
@@ -61,7 +62,7 @@ def _division_de(clave, hay_domiciliacion):
 
     Devuelve el nombre de la división. Los que comparten nombre se firman juntos.
     """
-    if clave in ("contrato", "adenda_os_pm", "adenda_os_pf"):
+    if clave in ("contrato", "contrato_pfae", "adenda_os_pm", "adenda_os_pf"):
         return "Contrato y obligación solidaria"
     if clave == "domiciliacion":
         return "Autorización de domiciliación"
