@@ -36,6 +36,13 @@ NEGATIVOS = {"Pérdida de operación", "Pérdida neta", "Pérdida Bruta",
              "Pérdida antes de Impuestos a la utilidad",
              "Pérdida de operaciones continuas"}
 
+# Una persona física con actividad empresarial no declara "ESTADO DE
+# RESULTADOS" ni "ESTADO DE POSICIÓN FINANCIERA (BALANCE)": esas claves
+# existen en el árbol pero llegan vacías. Los datos reales viven bajo estas
+# otras, con conceptos propios del régimen de PFAE.
+ESTADO_RESULTADOS_PFAE = "PFAE - ESTADO DE RESULTADOS"
+BALANCE_PFAE = "PFAE - ESTADO DE POSICIÓN FINANCIERA"
+
 
 def _total(nodo):
     """Saca el Total de un nodo del árbol, sin importar cuán hondo esté."""
@@ -148,6 +155,37 @@ def desde_declaracion(datos, ejercicio, fuente="syntage"):
     # `dictaminados` no viene en la declaración: se captura aparte.
     fila["dictaminados"] = None
     return fila, procedencia
+
+
+def desde_declaracion_pfae(datos, ejercicio, fuente="syntage"):
+    """Traduce el árbol PFAE de una declaración anual a la fila de `info_fiscal`.
+
+    A diferencia de persona moral, aquí no hay subgrupo "a corto plazo": el
+    balance PFAE trae un solo total por ACTIVO/PASIVO/CAPITAL, así que ese
+    total es lo que se guarda en las columnas activo_corto_plazo/
+    pasivo_corto_plazo — una aproximación consciente, no un dato de corto
+    plazo real, pero es lo único que declara este régimen.
+    """
+    er = datos.get(ESTADO_RESULTADOS_PFAE) or {}
+    bal = datos.get(BALANCE_PFAE) or {}
+    fila = {"ejercicio": ejercicio, "fuente": fuente}
+
+    fila["ingresos_totales"] = _total(_buscar(er, ("INGRESOS", "INGRESOS ACUMULABLES")))
+
+    utilidad = _total(_buscar(er, ("RESULTADO FISCAL", "UTILIDAD FISCAL")))
+    if utilidad is None:
+        perdida = _total(_buscar(er, ("RESULTADO FISCAL", "PÉRDIDA FISCAL")))
+        utilidad = -perdida if perdida is not None else None
+    fila["utilidad_operacion"] = utilidad
+
+    fila["activo_corto_plazo"] = _total(_buscar(bal, ("ACTIVO", "TOTAL")))
+    fila["pasivo_corto_plazo"] = _total(_buscar(bal, ("PASIVO", "TOTAL")))
+    fila["capital_contable"] = _total(_buscar(bal, ("CAPITAL", "TOTAL")))
+    fila["inventarios"] = _total(_buscar(bal, ("ACTIVO", "INVENTARIOS")))
+
+    fila["ingresos_partes_relacionadas"] = None
+    fila["dictaminados"] = None
+    return fila, {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

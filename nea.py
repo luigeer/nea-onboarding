@@ -762,10 +762,38 @@ def cmd_fiscal(folio):
     balance = salida.get("metrics/balance-sheet")
     resultados = salida.get("metrics/income-statement")
     filas = info_fiscal.desde_insights(balance, resultados) if (balance or resultados) else []
+
+    # Los insights metrics/balance-sheet y metrics/income-statement no traen
+    # nada para un PFAE: ese régimen no declara balance general ni estado de
+    # resultados en esa forma. La declaración anual real sí existe y sí tiene
+    # los datos, bajo un árbol distinto — se lee aparte.
+    es_pfae = exp.get("tipo_cliente") != "persona_moral"
+    declaraciones = syntage.declaraciones(entidad["id"])
+    anuales = [d for d in declaraciones if d.get("period") == "Del Ejercicio"
+              and d.get("intervalUnit") == "Anual"]
+    mas_reciente_por_anio = {}
+    for d in anuales:
+        anio = d.get("fiscalYear")
+        actual = mas_reciente_por_anio.get(anio)
+        if actual is None or (d.get("presentedAt") or "") > (actual.get("presentedAt") or ""):
+            mas_reciente_por_anio[anio] = d
+
+    for anio, d in mas_reciente_por_anio.items():
+        datos_declaracion = syntage.declaracion_datos(d["id"])
+        syntage.guardar_crudo(folio, entidad["id"],
+                              {"tax-return-%s" % d["id"]: datos_declaracion},
+                              ejercicio=anio, sb=sb)
+        if es_pfae:
+            fila, _ = info_fiscal.desde_declaracion_pfae(datos_declaracion, anio)
+        else:
+            fila, _ = info_fiscal.desde_declaracion(datos_declaracion, anio)
+        filas.append(fila)
+
     guardadas_fiscal = info_fiscal.a_supabase(folio, filas, sb=sb) if filas else 0
 
     titulo("Resultado")
     print("  Recursos extraidos:      %d" % len(salida))
+    print("  Declaraciones anuales:   %d" % len(mas_reciente_por_anio))
     print("  Guardados en syntage_datos: %d" % guardadas_crudo)
     print("  Ejercicios en info_fiscal:  %d" % guardadas_fiscal)
     if fallos:

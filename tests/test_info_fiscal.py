@@ -105,6 +105,57 @@ check(info_fiscal.desde_insights({"data": []}, {"data": []}) == [],
 check(info_fiscal.desde_insights(None, None) == [],
       "y un payload ausente no revienta")
 
+# ── PFAE: la declaración anual usa claves y rutas distintas ──────────────────
+print("desde_declaracion_pfae(): el árbol real trae claves con prefijo PFAE -")
+
+DECL_PFAE = {
+    "PFAE - ESTADO DE RESULTADOS": {
+        "INGRESOS": {
+            "TOTAL": 7133551,
+            "OTROS INGRESOS": 69441,
+            "INGRESOS ACUMULABLES": 7202992,
+        },
+        "RESULTADO FISCAL": {
+            "TOTAL": 0,
+            "UTILIDAD FISCAL": 0,
+            "PÉRDIDA FISCAL": None,
+        },
+    },
+    "PFAE - ESTADO DE POSICIÓN FINANCIERA": {
+        "ACTIVO": {"TOTAL": 850000.0, "INVENTARIOS": 30000.0},
+        "PASIVO": {"TOTAL": 200000.0},
+        "CAPITAL": {"TOTAL": 650000.0},
+    },
+}
+
+f, proc = info_fiscal.desde_declaracion_pfae(DECL_PFAE, 2025)
+check(f["ejercicio"] == 2025 and f["fuente"] == "syntage", "trae ejercicio y fuente")
+check(f["ingresos_totales"] == 7202992,
+      "los ingresos salen de INGRESOS ACUMULABLES, no del subtotal")
+check(f["utilidad_operacion"] == 0, "la utilidad fiscal declarada en cero se lee como cero")
+check(f["activo_corto_plazo"] == 850000.0 and f["pasivo_corto_plazo"] == 200000.0,
+      "el balance PFAE es un solo total, no un subgrupo de corto plazo")
+check(f["capital_contable"] == 650000.0, "y el capital contable de su renglón")
+check(f["inventarios"] == 30000.0, "los inventarios salen directo de ACTIVO, sin recorrer ramas")
+
+print("desde_declaracion_pfae(): pérdida fiscal se invierte a negativo")
+decl_perdida = {
+    "PFAE - ESTADO DE RESULTADOS": {
+        "INGRESOS": {"INGRESOS ACUMULABLES": 500000},
+        "RESULTADO FISCAL": {"UTILIDAD FISCAL": None, "PÉRDIDA FISCAL": 50000},
+    },
+    "PFAE - ESTADO DE POSICIÓN FINANCIERA": {},
+}
+f, proc = info_fiscal.desde_declaracion_pfae(decl_perdida, 2024)
+check(f["utilidad_operacion"] == -50000.0,
+      "una pérdida fiscal declarada en positivo se lee como negativa")
+
+print("desde_declaracion_pfae(): sin las claves PFAE, no revienta")
+f, proc = info_fiscal.desde_declaracion_pfae({}, 2023)
+check(f["ejercicio"] == 2023, "conserva el ejercicio")
+check(f["ingresos_totales"] is None and f["utilidad_operacion"] is None,
+      "y deja en None lo que no pudo leer, sin lanzar excepción")
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))
