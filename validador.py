@@ -596,10 +596,53 @@ def _elegibles(exp, linea=None):
     return salida
 
 
+def _identidad_propia(exp, r, val, nombre):
+    """Etapa 2 para PFAE: firma por su propio derecho, no hay poder que leer.
+
+    No hay acta constitutiva ni apoderados: lo único que hace falta es que su
+    propia identidad esté completa, los mismos datos que ya exige el Anexo 3
+    (generar_pld_pf.py) para el formato PLD.
+    """
+    if not nombre:
+        propuesto = _get(exp, "representante_legal.propuesto.nombre")
+        r.anotar(INTERMEDIA, "Falta validar la identidad del cliente",
+                 ("Ventas propuso a %s, pero todavía no se valida su identidad."
+                  % propuesto) if propuesto else
+                 "No hay representante legal propuesto ni validado.",
+                 pedir="Identificación oficial vigente y domicilio del cliente",
+                 tipo="facultades", bloquea=(GENERACION,))
+        return
+
+    ident = val.get("identificacion") or {}
+    campos = (
+        ("CURP", val.get("curp")), ("RFC", val.get("rfc")),
+        ("fecha de nacimiento", val.get("fecha_nacimiento")),
+        ("país de nacimiento", val.get("pais_nacimiento")),
+        ("país de nacionalidad", val.get("pais_nacionalidad")),
+        ("tipo de identificación", ident.get("tipo")),
+        ("número de identificación", ident.get("numero")),
+        ("autoridad emisora", ident.get("autoridad_emisora")),
+        ("país emisor", ident.get("pais_emisor")),
+    )
+    faltantes = [nombre_campo for nombre_campo, valor in campos if not valor]
+    if faltantes:
+        r.anotar(INTERMEDIA, "Identidad del cliente incompleta",
+                 "Faltan estos datos de %s: %s." % (nombre, ", ".join(faltantes)),
+                 pedir="Completar: %s" % ", ".join(faltantes),
+                 tipo="facultades", bloquea=(GENERACION,))
+
+
 def _facultades(exp, r):
     """El árbol de decisión de la etapa 2, que es lo más consecuente del flujo."""
     val = _get(exp, "representante_legal.validado", {}) or {}
     nombre = val.get("nombre")
+
+    # Solo persona moral tiene poderes que leer: acta constitutiva, apoderados,
+    # facultades. Un PFAE firma por su propio derecho.
+    if _get(exp, "tipo_cliente") != "persona_moral":
+        _identidad_propia(exp, r, val, nombre)
+        return
+
     fac = val.get("facultades") or {}
     linea = (_get(exp, "credito.autorizada.linea")
              or _get(exp, "credito.solicitada.linea"))

@@ -205,6 +205,57 @@ r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
 check(any("mancomunado" in h["asunto"] for h in r.por_gravedad(BAJA)),
       "con cofirmantes baja a informativo")
 
+# ── PFAE: identidad propia, no poder de un acta que no existe ───────────────
+print("PFAE: identidad propia en vez de facultades")
+
+
+def completo_pfae(**cambios):
+    """Un PFAE al que no le falta nada: firma por su propio derecho."""
+    e = expediente_vacio()
+    e["folio"] = "T-PF-01"
+    e["tipo_cliente"] = "pfae"
+    e["cliente"]["validado"].update({
+        "razon_social": "HERNAN MEZA HERRERA", "rfc": "MEHH820721NBA",
+        "situacion_contribuyente": "ACTIVO"})
+    e["credito"]["solicitada"]["linea"] = 50000.0
+    e["documentos"] = [
+        {"tipo": "csf_cliente", "fecha_emision": "2026-07-01", "legible": True},
+        {"tipo": "identificacion_rep", "vigente_hasta": "2031-12-31", "legible": True},
+        {"tipo": "comprobante_domicilio", "fecha_emision": "2026-07-20", "legible": True},
+        {"tipo": "constancia_cuenta_propia", "fecha_emision": "2026-07-01", "legible": True},
+        {"tipo": "autorizacion_buro", "fecha_emision": "2026-01-10", "legible": True},
+        {"tipo": "cotizacion", "fecha_emision": "2026-07-31", "legible": True},
+    ]
+    e["cuentas_bancarias"] = [{"banco": "BBVA", "titular_es_cliente": True,
+                               "periodos": ["2026-05", "2026-06", "2026-07"]}]
+    e["representante_legal"]["validado"].update({
+        "nombre": "HERNAN MEZA HERRERA", "curp": "MEHH820721HDGZRR06",
+        "rfc": "MEHH820721NBA", "fecha_nacimiento": "1982-07-21",
+        "pais_nacimiento": "México", "pais_nacionalidad": "México",
+        "identificacion": {"tipo": "INE", "numero": "1234567890",
+                           "autoridad_emisora": "INE", "pais_emisor": "México"},
+    })
+    for k, v in cambios.items():
+        e[k] = v
+    return e
+
+
+r = revisar(completo_pfae(), hoy=HOY, cobertura=COBERTURA_LLENA)
+check(not [h for h in r.hallazgos if h["tipo"] == "facultades"],
+      "PFAE con identidad completa no genera hallazgos de facultades")
+
+e = completo_pfae()
+e["representante_legal"]["validado"]["curp"] = None
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+falt = [h for h in r.hallazgos if h["tipo"] == "facultades"]
+check(bool(falt) and "CURP" in falt[0]["detalle"],
+      "PFAE sin CURP pide el dato, no habla de poderes")
+check(bool(falt) and GENERACION in falt[0]["bloquea"],
+      "y bloquea la generación de documentos")
+check(not any("títulos de crédito" in h["asunto"] or "mancomunado" in h["asunto"]
+              for h in r.hallazgos),
+      "el mensaje nunca menciona facultades ni poder mancomunado")
+
 # ── el obligado solidario ────────────────────────────────────────────────────
 print("Obligado solidario")
 
@@ -437,6 +488,28 @@ sin_nombre = listo_para_generar(observaciones=[{
     "descripcion": "El 100% de los depositos viene del obligado solidario"}])
 check(any("sin nombre de quien lo asume" in f for f in compuertas_generacion(sin_nombre)),
       "pero no sin el nombre de quien lo asume: alguien tiene que firmarlo")
+
+# ── la compuerta de generación no le exige poder a un PFAE ──────────────────
+print("Compuerta de generación: PFAE")
+
+
+def listo_pfae(**cambios):
+    e = completo_pfae()
+    e["credito"]["autorizada"] = {"linea": 50000.0}
+    e.update(cambios)
+    return e
+
+
+check(not compuertas_generacion(listo_pfae()),
+      "PFAE con identidad completa y línea autorizada puede generar")
+
+incompleto = listo_pfae()
+incompleto["representante_legal"]["validado"]["identificacion"]["numero"] = None
+fallas_pfae = compuertas_generacion(incompleto)
+check(any("identidad" in f.lower() for f in fallas_pfae),
+      "PFAE sin número de identificación no puede generar")
+check(not any("títulos de crédito" in f or "mancomunado" in f for f in fallas_pfae),
+      "y el mensaje no habla de poderes ni facultades, que no aplican a PFAE")
 
 # ── la periodicidad de la domiciliacion sale del expediente ──────────────────
 print("Domiciliacion")

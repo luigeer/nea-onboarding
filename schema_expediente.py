@@ -185,20 +185,44 @@ def compuertas_generacion(exp):
                       "riesgo debe autorizar o rechazar antes de generar.")
 
     # ── representante legal validado y apto ─────────────────────────────────
-    fac = _get(exp, "representante_legal.validado.facultades", {})
-    if not _get(exp, "representante_legal.validado.nombre"):
-        fallas.append("Representante legal sin validar (etapa 2).")
-    if fac.get("titulos_credito") is not True:
-        fallas.append("El representante validado no tiene facultad para suscribir "
-                      "títulos de crédito.")
-    if fac.get("individual") is not True and not _get(exp, "cofirmantes"):
-        fallas.append("El poder es mancomunado y no hay cofirmantes con identificación "
-                      "en el expediente.")
-    limite = fac.get("limite_monto")
-    if linea and limite is not None and float(limite) < float(linea):
-        fallas.append("El poder tiene límite de $%s, inferior a la línea autorizada de "
-                      "$%s. Se requiere un representante elegible." %
-                      (format(float(limite), ",.2f"), format(float(linea), ",.2f")))
+    # Persona moral: hay poderes que leer del acta constitutiva. Un PFAE firma
+    # por su propio derecho, así que en vez de facultades se exige que su
+    # propia identidad esté completa (los mismos datos que pide el Anexo 3).
+    if _get(exp, "tipo_cliente") == "persona_moral":
+        fac = _get(exp, "representante_legal.validado.facultades", {})
+        if not _get(exp, "representante_legal.validado.nombre"):
+            fallas.append("Representante legal sin validar (etapa 2).")
+        if fac.get("titulos_credito") is not True:
+            fallas.append("El representante validado no tiene facultad para suscribir "
+                          "títulos de crédito.")
+        if fac.get("individual") is not True and not _get(exp, "cofirmantes"):
+            fallas.append("El poder es mancomunado y no hay cofirmantes con "
+                          "identificación en el expediente.")
+        limite = fac.get("limite_monto")
+        if linea and limite is not None and float(limite) < float(linea):
+            fallas.append("El poder tiene límite de $%s, inferior a la línea "
+                          "autorizada de $%s. Se requiere un representante elegible." %
+                          (format(float(limite), ",.2f"), format(float(linea), ",.2f")))
+    else:
+        val = _get(exp, "representante_legal.validado", {}) or {}
+        ident = val.get("identificacion") or {}
+        if not val.get("nombre"):
+            fallas.append("Representante legal sin validar (etapa 2).")
+        else:
+            campos = (
+                ("CURP", val.get("curp")), ("RFC", val.get("rfc")),
+                ("fecha de nacimiento", val.get("fecha_nacimiento")),
+                ("país de nacimiento", val.get("pais_nacimiento")),
+                ("país de nacionalidad", val.get("pais_nacionalidad")),
+                ("tipo de identificación", ident.get("tipo")),
+                ("número de identificación", ident.get("numero")),
+                ("autoridad emisora", ident.get("autoridad_emisora")),
+                ("país emisor", ident.get("pais_emisor")),
+            )
+            faltantes = [nombre for nombre, valor in campos if not valor]
+            if faltantes:
+                fallas.append("Identidad del cliente (PFAE) incompleta: falta %s." %
+                              ", ".join(faltantes))
 
     # ── estados de cuenta contra la línea autorizada ────────────────────────
     if linea:
