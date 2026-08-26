@@ -65,9 +65,11 @@ añadir una entrada al diccionario `PARSERS` — no toca `nea.py` ni el resto de
 1. Baja `1 Documentos del cliente` del expediente vía `drive_cliente.py`
    (`documentos_cliente()` + `descargar()`), a un directorio temporal.
 2. Para cada PDF corre `bancos.identificar(ruta)`.
-3. Los que cuadran: upsert a la tabla `estados_cuenta` de Supabase, con
-   restricción única en `(folio, cuenta, fecha_final)` — correr el comando
-   dos veces no duplica filas.
+3. Los que cuadran: upsert a la tabla `estados_cuenta` de Supabase (ya
+   existe, ver [supabase/migracion_02_riesgo.sql](../../../supabase/migracion_02_riesgo.sql)),
+   usando el índice único que ya tiene la tabla,
+   `estados_cuenta_periodo_unico` sobre `(folio, banco, cuenta, fecha_final)`
+   — correr el comando dos veces no duplica filas.
 4. Los que no cuadran con ningún parser conocido: se listan aparte como "no
    reconocido, revisar a mano".
 5. Actualiza `exp["cuentas_bancarias"]` (lo que ya lee `validador.py` para la
@@ -81,23 +83,32 @@ añadir una entrada al diccionario `PARSERS` — no toca `nea.py` ni el resto de
 6. Imprime un resumen: PDFs procesados, cuántos cuadraron, cuántos no se
    reconocieron.
 
-### Esquema `estados_cuenta` (tabla nueva en Supabase)
+### La tabla `estados_cuenta` ya existe — se llena, no se crea
+
+Tiene columnas que `bbva.py` no puede producir (`saldo_minimo`,
+`saldo_maximo`, `tipo_cambio`, y las cuatro `*_operativo`, que vienen de algo
+llamado "Bank Statement Analyzer" según el comentario de la migración — una
+herramienta externa que no está en este repo). Esas quedan en `null`; el
+propio esquema ya las trata como opcionales: `cobertura_riesgo` cuenta
+`estados_cuenta` (cualquier fila) aparte de `estados_reconciliados` (solo las
+que sí traen `numero_depositos_operativo`), y `validador._insumos_modelo`
+([validador.py:557-567](../../../validador.py:557)) solo bloquea la
+compuerta de riesgo si `estados_cuenta` es 0 — sin reconciliar baja a un
+aviso informativo (`BAJA`), no bloquea. Basta con lo que da `encabezado()`.
 
 | Columna | De dónde sale |
 |---|---|
 | `folio` | argumento del comando |
-| `banco`, `cuenta`, `clabe`, `titular`, `rfc`, `moneda` | `encabezado()` |
+| `banco`, `cuenta`, `moneda` | `encabezado()` |
 | `fecha_inicial`, `fecha_final` | `encabezado()` |
 | `saldo_inicial`, `saldo_final`, `saldo_promedio` | `encabezado()` |
 | `numero_depositos`, `monto_depositos` | `encabezado()` |
 | `numero_retiros`, `monto_retiros` | `encabezado()` |
-| `cuadra` | resultado de `bancos.identificar()` |
 | `drive_file_id` | trazabilidad: de qué PDF de Drive salió |
-| `creado_en` | timestamp |
+| `saldo_minimo`, `saldo_maximo`, `tipo_cambio`, `*_operativo`, `verificado_cep` | `null` — no los produce `bbva.py` |
 
-Restricción única: `(folio, cuenta, fecha_final)`. Son exactamente las
-columnas que ya lee `insumos_riesgo.cuentas()` vía `CAMPOS_PERIODO` — no se
-inventa ninguna.
+Upsert con `on_conflict` sobre el índice único que ya existe,
+`estados_cuenta_periodo_unico` — `(folio, banco, cuenta, fecha_final)`.
 
 ## Comando `nea.py fiscal FOLIO`
 
