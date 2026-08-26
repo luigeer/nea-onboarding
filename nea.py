@@ -702,6 +702,66 @@ def cmd_estados(folio):
     return 0
 
 
+def cmd_fiscal(folio):
+    """Extrae balance y estado de resultados de Syntage y los proyecta a
+    `info_fiscal`. Nunca da de alta al cliente en Syntage: si no existe ahi,
+    avisa en rojo y para — el alta requiere sus propias credenciales del SAT.
+    """
+    import syntage
+    import info_fiscal
+
+    exp = cargar(folio)
+    rfc = exp["cliente"]["validado"].get("rfc")
+    razon = exp["cliente"]["validado"].get("razon_social") or folio
+    titulo("%s — %s" % (razon, folio))
+
+    if not rfc:
+        print("  El expediente no tiene RFC validado todavia.")
+        return 1
+
+    entidad = syntage.buscar_entidad(rfc)
+    completa, pendientes = ((None, [])
+                            if entidad is None
+                            else syntage.extraccion_completa(rfc))
+    decision = syntage.decidir_fiscal(entidad, bool(completa), pendientes)
+
+    if not decision["continuar"]:
+        if decision["razon"] == "sin_entidad":
+            print("  \033[91m⚠ RFC %s no dado de alta en Syntage.\033[0m" % rfc)
+            print("  El cliente debe registrarse ahi con sus propias")
+            print("  credenciales del SAT. Pedir a ventas que lo levante.")
+        else:
+            print("  Extracciones todavia corriendo, no se puede usar a medias:")
+            for p in decision["pendientes"]:
+                print("    · %s (%s)" % (p.get("extractor"), p.get("estado")))
+        return 1
+
+    if not hay_supabase():
+        print("  Este comando necesita Supabase: ahi se guarda lo extraido.")
+        return 1
+    import db
+    sb = db.cliente()
+
+    salida, fallos = syntage.extraer_todo(entidad["id"])
+    guardadas_crudo = syntage.guardar_crudo(folio, entidad["id"], salida, sb=sb)
+
+    balance = salida.get("metrics/balance-sheet")
+    resultados = salida.get("metrics/income-statement")
+    filas = info_fiscal.desde_insights(balance, resultados) if (balance or resultados) else []
+    guardadas_fiscal = info_fiscal.a_supabase(folio, filas, sb=sb) if filas else 0
+
+    titulo("Resultado")
+    print("  Recursos extraidos:      %d" % len(salida))
+    print("  Guardados en syntage_datos: %d" % guardadas_crudo)
+    print("  Ejercicios en info_fiscal:  %d" % guardadas_fiscal)
+    if fallos:
+        print("  Recursos que fallaron (no detienen lo demas):")
+        for recurso, error in fallos.items():
+            print("    · %s: %s" % (recurso, error))
+
+    return 0
+
+
 def cmd_solicitud(folio):
     """El texto corto que ventas le reenvía al cliente."""
     import db
@@ -1195,6 +1255,8 @@ def main(argv):
             return cmd_riesgo(args[0], forzar="--forzar" in args)
         if orden == "estados" and len(args) == 1:
             return cmd_estados(args[0])
+        if orden == "fiscal" and len(args) == 1:
+            return cmd_fiscal(args[0])
         if orden == "solicitud" and len(args) == 1:
             return cmd_solicitud(args[0])
         if orden == "perfil" and len(args) == 1:
