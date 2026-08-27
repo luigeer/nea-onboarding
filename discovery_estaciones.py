@@ -9,12 +9,16 @@ cobran de comisión.
 
 Se distingue de los dos módulos que ya existen por la unidad de análisis:
 `monederos.py` y `estaciones_monedero.py` responden por UN cliente durante su
-onboarding; aquí la pregunta es del portafolio completo, y la fuente no es la
-API de Syntage sino las facturas ya descargadas. Nada de esto llama a la red.
+onboarding; aquí la pregunta es del portafolio completo.
 
 Uso:
     python discovery_estaciones.py resumen "<ruta del zip o carpeta>"
     python discovery_estaciones.py xlsx    "<ruta del zip o carpeta>"
+    python discovery_estaciones.py xlsx    "<ruta>" --comisiones
+
+Sin `--comisiones` no se toca la red: todo sale de los archivos descargados.
+Con `--comisiones` se le pide a Syntage lo único que no está en esos archivos
+—cuánto le cobra el monedero a cada cliente— vía `comisiones_monedero.py`.
 
 **Dos fuentes, cada una con lo que sí puede dar.** Se confirmó contra una
 descarga real de 17 clientes:
@@ -39,15 +43,16 @@ nada. Y hay cargos del mismo emisor que NO son comisión ("PLASTICOS",
 reposición de tarjetas): esos se reportan aparte en vez de sumarse a la
 comisión o desaparecer sin dejar rastro.
 
-**Lo que se descubrió al correr esto y hay que no volver a buscar aquí: la
-comisión NO está en los CFDI.** Sobre 17 clientes y $2.47M de combustible
-cargado, la comisión facturada suma $22.20 — nueve diezmilésimas de punto
-porcentual. Tampoco está escondida dentro del estado de cuenta: la razón
-Total/SubTotal del complemento va de 1.1435 a 1.1570 en los cinco monederos,
-o sea solo IVA, sin cargo extra. Si el monedero cobra un margen, lo cobra en
-el precio por litro o en el contrato, no en un concepto facturado. La columna
-"Comisión %" de este reporte va a salir vacía o en ceros, y eso es el dato
-correcto, no una falla del lector.
+**Por qué la comisión de verdad no se busca aquí, sino en Syntage.** Los CFDI
+que este módulo lee son los estados de cuenta —los que el paso 1 manda
+descargar—, y ahí la comisión no está por diseño: sobre 17 clientes y $2.47M
+de combustible, los archivos descargados solo revelan $22.20 de comisión.
+Tampoco está escondida dentro del estado de cuenta: la razón Total/SubTotal
+del complemento va de 1.1435 a 1.1570 en los cinco monederos, o sea puro IVA.
+La comisión llega en facturas APARTE del mismo emisor, que no se descargaron,
+y por eso se pide a la API: ver `comisiones_monedero.py`. Las columnas
+`RE_COMISION` de aquí son el respaldo para lo que sí aparezca en los
+archivos, no la respuesta a "cuánto le cobran".
 """
 
 import csv
@@ -260,9 +265,77 @@ def _promedio(total, meses):
     return round(total / meses, 2) if meses else None
 
 
-def analizar(ruta):
+def _cruzar_comisiones(fila, monederos_rfc, comisiones, cargado_por_mes):
+    """Llena las columnas de comisión que vienen de Syntage.
+
+    El porcentaje solo se calcula sobre los meses que tienen AMBAS cosas: la
+    comisión facturada y el combustible cargado. Un mes con comisión pero sin
+    XML descargado se reporta en el total histórico y se queda FUERA de la
+    base — dividir la comisión de un mes entre el gasto de otro daría un
+    porcentaje inventado.
+
+    Las tres cifras son acumuladas (explícita ⊂ +administrativa ⊂ total)
+    porque así se comparan contra un pricing: son tres respuestas a "cuánto
+    paga hoy", según dónde se ponga la línea de qué es comisión."""
+    rfc = fila["rfc_cliente"]
+    desgloses = [comisiones[(rfc, m)] for m in monederos_rfc
+                 if (rfc, m) in comisiones]
+    if not desgloses:
+        return
+
+    fila["declara_cero"] = sum(d.get("declara_cero") or 0 for d in desgloses)
+
+    # Los totales históricos que reporta el monedero, con el fondeo aparte:
+    # el fondeo es el dinero movido, no un cargo, y es el denominador con el
+    # que un monedero cobra.
+    tot = {k: 0.0 for k in ("explicita", "administrativa", "otros", "fondeo",
+                            "fondeo_combustible")}
+    for d in desgloses:
+        for k in tot:
+            tot[k] += (d.get("total") or {}).get(k) or 0
+    cargos = tot["explicita"] + tot["administrativa"] + tot["otros"]
+    fila["fondeo"] = round(tot["fondeo"], 2)
+    fila["fondeo_combustible"] = round(tot["fondeo_combustible"], 2)
+    fila["cargos_monedero"] = round(cargos, 2)
+    fila["comision_syntage_total"] = round(cargos, 2)
+    if tot["fondeo"]:
+        fila["pct_sobre_fondeo"] = cargos / tot["fondeo"]
+        fila["pct_comision_sobre_fondeo"] = (
+            (tot["explicita"] + tot["administrativa"]) / tot["fondeo"])
+        fila["proporcion_combustible"] = tot["fondeo_combustible"] / tot["fondeo"]
+
+    explicita = administrativa = otros = 0.0
+    meses_pareados = set()
+    for d in desgloses:
+        for mes, montos in (d.get("meses") or {}).items():
+            if (rfc, mes) not in cargado_por_mes:
+                continue
+            meses_pareados.add(mes)
+            explicita += montos.get("explicita") or 0
+            administrativa += montos.get("administrativa") or 0
+            otros += montos.get("otros") or 0
+
+    base = sum(cargado_por_mes[(rfc, m)] for m in meses_pareados)
+    fila["meses_pareados"] = len(meses_pareados)
+    fila["base_comision"] = round(base, 2)
+    fila["syntage_explicita"] = round(explicita, 2)
+    fila["syntage_administrativa"] = round(administrativa, 2)
+    fila["syntage_otros"] = round(otros, 2)
+    if base:
+        fila["pct_explicita"] = explicita / base
+        fila["pct_administrativa"] = (explicita + administrativa) / base
+        fila["pct_total"] = (explicita + administrativa + otros) / base
+
+
+def analizar(ruta, comisiones=None):
     """Lee todas las facturas de `ruta` (un zip o una carpeta) y devuelve los
-    agregados del discovery. No llama a la red ni escribe nada."""
+    agregados del discovery.
+
+    `comisiones` es opcional: el resultado de
+    `comisiones_monedero.recolectar()`, indexado por (rfc_cliente,
+    rfc_monedero). Sin él, este módulo no toca la red y las columnas de
+    comisión de Syntage quedan en None — que es distinto de cero."""
+    comisiones = comisiones or {}
     cfdis = {}
     filas_csv = {}
     for fuente in _fuentes(ruta):
@@ -406,11 +479,12 @@ def analizar(ruta):
                           if (c["rfc_cliente"], m) in cargado_por_mes]
         comision_pareada = sum(c["comision_por_mes"][m] for m in meses_pareados)
         base = sum(cargado_por_mes[(c["rfc_cliente"], m)] for m in meses_pareados)
-        filas_clientes.append({
+        fila = {
             "rfc_cliente": c["rfc_cliente"],
             "razon_social": c["razon_social"],
             "monederos": sorted(_nombre_monedero(r, nombres_cfdi.get(r))
                                 for r in c["monederos_rfc"]),
+            "monederos_rfc": sorted(c["monederos_rfc"]),
             "meses": len(c["meses_set"]),
             "cargas": c["cargas"],
             "litros": round(c["litros"], 2),
@@ -418,7 +492,27 @@ def analizar(ruta):
             "promedio_mensual": _promedio(c["importe"], len(c["meses_set"])),
             "comision": round(c["comision"], 2),
             "comision_porcentaje": (comision_pareada / base) if base else None,
-        })
+            # Comisión de Syntage. En None, no en cero: no consultar a un
+            # cliente no es lo mismo que consultarlo y no encontrarle nada.
+            "meses_pareados": 0,
+            "base_comision": None,
+            "syntage_explicita": None,
+            "syntage_administrativa": None,
+            "syntage_otros": None,
+            "pct_explicita": None,
+            "pct_administrativa": None,
+            "pct_total": None,
+            "comision_syntage_total": None,
+            "declara_cero": 0,
+            "fondeo": None,
+            "fondeo_combustible": None,
+            "cargos_monedero": None,
+            "pct_sobre_fondeo": None,
+            "pct_comision_sobre_fondeo": None,
+            "proporcion_combustible": None,
+        }
+        _cruzar_comisiones(fila, c["monederos_rfc"], comisiones, cargado_por_mes)
+        filas_clientes.append(fila)
     # Un cliente sin ningún complemento no es un cliente de este ranking:
     # aparece en `sin_detalle`, con lo poco que sí se sabe de él.
     con_detalle = {f["rfc_cliente"] for f in filas_clientes if f["meses"]}
@@ -514,6 +608,7 @@ def analizar(ruta):
         "razon_social": s["razon_social"],
         "monederos": sorted(_nombre_monedero(r, nombres_cfdi.get(r))
                             for r in s["monederos_rfc"]),
+        "monederos_rfc": sorted(s["monederos_rfc"]),
         "facturas": s["facturas"],
         "meses": len(s["meses_set"]),
     } for s in sin_detalle.values()]
@@ -550,8 +645,28 @@ HOJAS = [
         ("Litros", lambda f: f["litros"]),
         ("Importe total", lambda f: f["importe"]),
         ("Promedio mensual", lambda f: f["promedio_mensual"]),
-        ("Comisión $", lambda f: f["comision"]),
-        ("Comisión %", lambda f: _pct(f["comision_porcentaje"])),
+        # Las tres cifras de comisión, acumuladas, según dónde se ponga la
+        # línea de qué cuenta como comisión. Se reportan por separado porque
+        # esa línea es una decisión de negociación, no técnica, y mueve el
+        # resultado casi 4×.
+        # Sobre el FONDEO: así cobra un monedero, un % del dinero que mueve.
+        # Es la cifra comparable contra un pricing propio.
+        ("Fondeo total $", lambda f: f["fondeo"]),
+        ("Fondeo de combustible $", lambda f: f["fondeo_combustible"]),
+        ("Del fondeo, es combustible %", lambda f: _pct(f["proporcion_combustible"])),
+        ("Cargos del monedero $", lambda f: f["cargos_monedero"]),
+        ("Comisión s/fondeo %", lambda f: _pct(f["pct_comision_sobre_fondeo"])),
+        ("Todos los cargos s/fondeo %", lambda f: _pct(f["pct_sobre_fondeo"])),
+        # Sobre el combustible MEDIDO en los XML. Solo vale cuando el
+        # monedero no factura el fondeo (entonces no hay otro denominador),
+        # y solo sobre los meses que tienen ambas cosas.
+        ("Meses con comisión y combustible", lambda f: f["meses_pareados"]),
+        ("Combustible en esos meses $", lambda f: f["base_comision"]),
+        ("Comisión explícita %", lambda f: _pct(f["pct_explicita"])),
+        ("Comisión + administrativa %", lambda f: _pct(f["pct_administrativa"])),
+        ("Costo total monedero %", lambda f: _pct(f["pct_total"])),
+        ("Veces que declaró no cobrar comisión", lambda f: f["declara_cero"]),
+        ("Comisión vista en los CFDI $", lambda f: f["comision"]),
     ]),
     ("Estaciones", [
         ("RFC estación", lambda f: f["rfc_estacion"]),
@@ -655,7 +770,65 @@ def _pesos(v):
     return "$%s" % format(v or 0, ",.2f")
 
 
-def imprimir_resumen(r, tope=12):
+def _porciento(v):
+    return "%.2f%%" % (v * 100) if v is not None else "—"
+
+
+def _tabla_comisiones(r, tope):
+    # El porcentaje va sobre el FONDEO —el dinero que pasa por el monedero—
+    # porque así cobra un monedero. Sobre el combustible medido en los XML
+    # daría porcentajes absurdos: hay clientes que mueven $4.5M de despensa y
+    # restaurante contra $73 mil de gasolina con el mismo monedero.
+    con_fondeo = [c for c in r["clientes"] if c.get("pct_sobre_fondeo") is not None]
+    if con_fondeo:
+        print("\nCOMISIÓN sobre el fondeo — el dinero que pasa por el monedero")
+        print("  %-30s %15s %10s %11s %11s" % (
+            "Cliente", "Fondeo", "% combust.", "Comisión", "Con cargos"))
+        for c in sorted(con_fondeo, key=lambda f: -(f["fondeo"] or 0)):
+            print("  %-30s %15s %10s %11s %11s" % (
+                (c["razon_social"] or "")[:30], _pesos(c["fondeo"]),
+                _porciento(c["proporcion_combustible"]),
+                _porciento(c["pct_comision_sobre_fondeo"]),
+                _porciento(c["pct_sobre_fondeo"])))
+        print("\n  '%% combust.' es qué parte del fondeo es gasolina. Donde es "
+              "bajo, la comisión\n  es en buena medida de otro producto "
+              "(despensa, restaurante), no del combustible.")
+
+    sin_fondeo = [c for c in r["clientes"]
+                  if c.get("pct_sobre_fondeo") is None and c["meses_pareados"]]
+    if sin_fondeo:
+        print("\n  Su monedero NO factura el fondeo, así que el único "
+              "denominador es el\n  combustible medido en los XML (solo los "
+              "meses que tienen ambas cosas):")
+        print("  %-30s %6s %14s %11s %11s %11s" % (
+            "Cliente", "Meses", "Combustible", "Explícita", "+ Admin.", "Todo"))
+        for c in sin_fondeo:
+            print("  %-30s %6d %14s %11s %11s %11s" % (
+                (c["razon_social"] or "")[:30], c["meses_pareados"],
+                _pesos(c["base_comision"]), _porciento(c["pct_explicita"]),
+                _porciento(c["pct_administrativa"]), _porciento(c["pct_total"])))
+
+    sin_base = [c for c in r["clientes"] + r["sin_detalle"]
+                if not c.get("meses_pareados") and c.get("cargos_monedero")
+                and c.get("pct_sobre_fondeo") is None]
+    if sin_base:
+        print("\n  Le facturan cargos, pero no hay fondeo ni combustible del "
+              "mismo mes para sacar un porcentaje:")
+        for c in sin_base[:tope]:
+            print("  %-30s %14s en cargos de su monedero" % (
+                (c["razon_social"] or c["rfc_cliente"])[:30],
+                _pesos(c["cargos_monedero"])))
+
+    declara = [c for c in r["clientes"] if c.get("declara_cero")]
+    if declara:
+        print("\n  Facturas donde el monedero declara explícitamente que NO "
+              "cobra comisión (dato de negociación, no un cero):")
+        for c in declara:
+            print("  %-30s %d vez(ces)" % (
+                (c["razon_social"] or "")[:30], c["declara_cero"]))
+
+
+def imprimir_resumen(r, tope=12, con_comisiones=False):
     print("%d CFDI leídos, %d facturas listadas en CSV.\n"
           % (r["cfdis_leidos"], r["facturas_en_csv"]))
 
@@ -699,6 +872,12 @@ def imprimir_resumen(r, tope=12):
             m["rfc_monedero"], m["nombre"][:34], m["clientes"],
             _pesos(m["importe"]), pct))
 
+    if con_comisiones:
+        _tabla_comisiones(r, tope)
+    else:
+        print("\n  (La comisión no está en los archivos descargados: son estados "
+              "de cuenta.\n   Se lee de Syntage agregando --comisiones.)")
+
     if r["sin_detalle"]:
         print("\nSIN DETALLE DE ESTACIÓN — se sabe el monedero, falta bajar el CFDI")
         for s in r["sin_detalle"]:
@@ -728,6 +907,22 @@ def imprimir_resumen(r, tope=12):
                 _pesos(o["importe"])))
 
 
+def pares_cliente_monedero(r):
+    """Los (rfc_cliente, rfc_monedero) que hay que consultarle a Syntage,
+    sacados de un análisis ya hecho. Va por RFC y no por nombre comercial:
+    un monedero puede aparecer con dos nombres (el del padrón y el del CFDI)
+    y la API se consulta por RFC.
+
+    Incluye a los clientes sin detalle de estación: de ellos no se puede
+    sacar un porcentaje —falta la base— pero sí cuánto les factura su
+    monedero, que ya es dato de negociación."""
+    pares = set()
+    for c in r["clientes"] + r["sin_detalle"]:
+        for rfc_monedero in c["monederos_rfc"]:
+            pares.add((c["rfc_cliente"], rfc_monedero))
+    return pares
+
+
 def main(argv):
     if len(argv) < 3 or argv[1] not in ("resumen", "xlsx"):
         print(__doc__.split("Uso:")[1].split("**")[0].strip())
@@ -738,11 +933,32 @@ def main(argv):
         print("No existe: %s" % ruta)
         return 1
 
+    con_comisiones = "--comisiones" in argv
     r = analizar(ruta)
-    imprimir_resumen(r)
+
+    if con_comisiones:
+        # La comisión no está en los archivos descargados: se lee de Syntage.
+        # Se necesita el análisis offline primero para saber a qué pares
+        # preguntarle, y por eso se analiza dos veces — leer 86 XML es
+        # barato, y así este módulo no decide solo cuándo tocar la red.
+        import comisiones_monedero
+        pares = pares_cliente_monedero(r)
+        print("Consultando la comisión de %d (cliente, monedero) en Syntage. "
+              "La primera vez tarda; después sale del caché en out/comisiones.\n"
+              % len(pares))
+        comisiones = comisiones_monedero.recolectar(
+            sorted(pares), aviso=lambda t: print("  %s" % t))
+        print()
+        r = analizar(ruta, comisiones=comisiones)
+
+    imprimir_resumen(r, con_comisiones=con_comisiones)
 
     if argv[1] == "xlsx":
-        destino = argv[3] if len(argv) > 3 else os.path.join(
+        # Los argumentos que empiezan con "--" son banderas, no rutas: sin
+        # este filtro, `xlsx <zip> --comisiones` guardaba el Excel en un
+        # archivo llamado "--comisiones".
+        sueltos = [a for a in argv[3:] if not a.startswith("--")]
+        destino = sueltos[0] if sueltos else os.path.join(
             RAIZ, "out", "discovery_estaciones.xlsx")
         escribir_xlsx(r, destino)
         print("\nExcel: %s" % destino)

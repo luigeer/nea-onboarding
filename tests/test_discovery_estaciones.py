@@ -440,9 +440,67 @@ check(len(rsr["sospechosos"]) == 1,
       "queda marcado como sospechoso, no desaparece: %r" % rsr["sospechosos"])
 
 
+# ── Comisión de Syntage: tres categorías, solo sobre meses pareados ───────
+# La comisión real no está en los CFDI descargados (son estados de cuenta con
+# subtotal simbólico); llega en facturas aparte que se leen de Syntage. Aquí
+# se cruza ese desglose con el gasto que sí sale de los XML.
+COMISIONES = {
+    ("ALF020202BB2", "MOA010101AA1"): {
+        "meses": {
+            # Marzo sí tiene combustible en los XML ($8,000): entra a la base.
+            "2026-03": {"explicita": 800.0, "administrativa": 200.0, "otros": 100.0},
+            # Mayo no tiene ningún XML: su comisión se reporta, pero NO puede
+            # entrar al porcentaje — no hay gasto de ese mes contra el cual
+            # dividir, y meterlo inventaría un porcentaje.
+            "2026-05": {"explicita": 999.0, "administrativa": 0.0, "otros": 0.0},
+        },
+        "total": {"explicita": 1799.0, "administrativa": 200.0, "otros": 100.0},
+        "conceptos": [], "declara_cero": 3, "error": None,
+    },
+}
+
+rk = de.analizar(RUTA_ZIP, comisiones=COMISIONES)
+alfak = [c for c in rk["clientes"] if c["rfc_cliente"] == "ALF020202BB2"][0]
+
+check(alfak["meses_pareados"] == 1,
+      "solo marzo tiene comisión Y combustible: %r" % alfak["meses_pareados"])
+check(alfak["base_comision"] == 8000.0,
+      "la base es el combustible de marzo, no los $15,000 de los dos meses: %r"
+      % alfak["base_comision"])
+check(alfak["syntage_explicita"] == 800.0,
+      "la comisión explícita de los meses pareados, sin los $999 de mayo: %r"
+      % alfak["syntage_explicita"])
+check(abs(alfak["pct_explicita"] - 0.10) < 1e-9,
+      "explícita = $800 / $8,000 = 10%%: %r" % alfak["pct_explicita"])
+check(abs(alfak["pct_administrativa"] - 0.125) < 1e-9,
+      "explícita + administrativa = $1,000 / $8,000 = 12.5%% (acumulado, es "
+      "como se compara contra un pricing): %r" % alfak["pct_administrativa"])
+check(abs(alfak["pct_total"] - 0.1375) < 1e-9,
+      "todo lo que cobra el monedero = $1,100 / $8,000 = 13.75%%: %r"
+      % alfak["pct_total"])
+check(alfak["declara_cero"] == 3,
+      "cuántas veces el monedero declaró que no cobra comisión: %r"
+      % alfak["declara_cero"])
+check(alfak["comision_syntage_total"] == 2099.0,
+      "aparte, el total histórico de todo lo que le facturó el monedero, "
+      "incluyendo meses sin XML: %r" % alfak["comision_syntage_total"])
+
+# Un cliente sin desglose de Syntage no inventa ceros.
+betak = [c for c in rk["clientes"] if c["rfc_cliente"] == "BET060606FF6"][0]
+check(betak["pct_explicita"] is None and betak["meses_pareados"] == 0,
+      "sin consulta a Syntage, los porcentajes son None, no cero: %r"
+      % [betak["pct_explicita"], betak["meses_pareados"]])
+
+# Y sin el argumento, el reporte sigue funcionando igual que antes.
+check([c["rfc_cliente"] for c in r["clientes"]][0] == "ALF020202BB2",
+      "analizar() sin comisiones sigue sirviendo, offline")
+check(r["clientes"][0]["pct_explicita"] is None,
+      "y sus columnas de Syntage quedan en None: %r" % r["clientes"][0]["pct_explicita"])
+
+
 # ── El Excel se escribe de verdad ─────────────────────────────────────────
 destino = os.path.join(tempfile.mkdtemp(prefix="_prueba_discovery_xlsx_"), "d.xlsx")
-de.escribir_xlsx(r, destino)
+de.escribir_xlsx(rk, destino)
 check(os.path.exists(destino) and os.path.getsize(destino) > 0,
       "escribir_xlsx() deja un archivo con contenido en %s" % destino)
 
@@ -460,6 +518,14 @@ check(hoja.cell(row=1, column=1).value == "RFC estación",
 check(hoja.cell(row=2, column=1).value == "EST040404DD4",
       "el primer renglón de Estaciones es la de mayor importe: %r"
       % hoja.cell(row=2, column=1).value)
+
+encabezados_clientes = [libro["Clientes"].cell(row=1, column=i).value
+                        for i in range(1, libro["Clientes"].max_column + 1)]
+check("Comisión explícita %" in encabezados_clientes
+      and "Comisión + administrativa %" in encabezados_clientes
+      and "Costo total monedero %" in encabezados_clientes,
+      "la hoja de Clientes trae las tres columnas de comisión por separado, "
+      "para decidir en la negociación: %r" % encabezados_clientes)
 
 
 print()
