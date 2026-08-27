@@ -498,9 +498,106 @@ check(r["clientes"][0]["pct_explicita"] is None,
       "y sus columnas de Syntage quedan en None: %r" % r["clientes"][0]["pct_explicita"])
 
 
+# ── Combustible directo: sección APARTE de la de monederos ────────────────
+# Hay clientes que no usan monedero: compran la gasolina directo a una
+# gasolinera. Va en su propia sección a propósito — a un cliente de monedero
+# se le compite con pricing de comisión y a uno directo con red de
+# estaciones, y mezclarlos haría ver al segundo como si tuviera comisión cero.
+DIRECTO = {
+    ("GAM070707GG7", "GAS080808HH8"): {
+        "version": 1, "facturas": 12, "litros": 5000.0, "importe": 100000.0,
+        "precio_litro": 20.0,
+        "meses": {"2026-05": {"litros": 3000.0, "importe": 60000.0, "cargas": 8},
+                  "2026-06": {"litros": 2000.0, "importe": 40000.0, "cargas": 4}},
+        "estaciones": [
+            {"rfc_emisor": "GAS080808HH8", "permiso": "PL/1443/EXP/ES/2015",
+             "nombre_emisor": "GASOLINERA UNO", "cargas": 9, "litros": 3500.0,
+             "importe": 70000.0, "precio_litro": 20.0,
+             "combustibles": ["MAGNA"], "meses_activos": 2},
+            {"rfc_emisor": "GAS080808HH8", "permiso": "PL/6296/EXP/ES/2015",
+             "nombre_emisor": "GASOLINERA UNO", "cargas": 3, "litros": 1500.0,
+             "importe": 30000.0, "precio_litro": 20.0,
+             "combustibles": ["PREMIUM"], "meses_activos": 1}],
+        "error": None,
+    },
+    # Otro cliente que carga en la MISMA estación: el permiso tiene que
+    # juntarlos y contar 2 clientes distintos.
+    ("BET060606FF6", "GAS080808HH8"): {
+        "version": 1, "facturas": 2, "litros": 500.0, "importe": 10000.0,
+        "precio_litro": 20.0,
+        "meses": {"2026-05": {"litros": 500.0, "importe": 10000.0, "cargas": 2}},
+        "estaciones": [
+            {"rfc_emisor": "GAS080808HH8", "permiso": "PL/1443/EXP/ES/2015",
+             "nombre_emisor": "GASOLINERA UNO", "cargas": 2, "litros": 500.0,
+             "importe": 10000.0, "precio_litro": 20.0,
+             "combustibles": ["MAGNA"], "meses_activos": 1}],
+        "error": None,
+    },
+}
+
+rd2 = de.analizar(RUTA_ZIP, comisiones=COMISIONES, combustible_directo=DIRECTO)
+
+# Lo primero y más importante: NO se mezcla con el análisis de monederos.
+check([c["rfc_cliente"] for c in rd2["clientes"]] == ["ALF020202BB2", "BET060606FF6"],
+      "los clientes de monedero siguen siendo los mismos: el combustible "
+      "directo no agrega renglones ahí — %r"
+      % [c["rfc_cliente"] for c in rd2["clientes"]])
+beta_m = [c for c in rd2["clientes"] if c["rfc_cliente"] == "BET060606FF6"][0]
+check(beta_m["importe"] == 1000.0,
+      "y su importe de monedero no se infla con los $10,000 que compró "
+      "directo: %r" % beta_m["importe"])
+check("GAS080808HH8" not in {e["rfc_estacion"] for e in rd2["estaciones"]},
+      "la gasolinera de compra directa NO entra al ranking de estaciones de "
+      "monedero: %r" % [e["rfc_estacion"] for e in rd2["estaciones"]])
+
+# La sección propia, por cliente.
+directo = {c["rfc_cliente"]: c for c in rd2["combustible_directo"]}
+check(sorted(directo) == ["BET060606FF6", "GAM070707GG7"],
+      "los dos clientes con compra directa: %r" % sorted(directo))
+gama = directo["GAM070707GG7"]
+check(gama["importe"] == 100000.0 and gama["litros"] == 5000.0,
+      "el importe y los litros de GAMA: %r" % [gama["importe"], gama["litros"]])
+check(gama["meses"] == 2, "meses con compra directa: %r" % gama["meses"])
+check(gama["promedio_mensual"] == 50000.0,
+      "promedio mensual: $100,000 / 2 meses = %r" % gama["promedio_mensual"])
+check(abs(gama["precio_litro"] - 20.0) < 1e-9,
+      "precio por litro: %r" % gama["precio_litro"])
+check(gama["razon_social"] == "GAMA TRANSPORTES",
+      "la razón social se toma del análisis de los CFDI: %r" % gama["razon_social"])
+check(rd2["combustible_directo"][0]["rfc_cliente"] == "GAM070707GG7",
+      "ordenados por importe: %r"
+      % [c["rfc_cliente"] for c in rd2["combustible_directo"]])
+
+# Y las estaciones directas, agregadas por permiso CRE entre clientes.
+ed = {e["permiso"]: e for e in rd2["estaciones_directas"]}
+check(sorted(ed) == ["PL/1443/EXP/ES/2015", "PL/6296/EXP/ES/2015"],
+      "las estaciones directas se identifican por permiso CRE: %r" % sorted(ed))
+p1 = ed["PL/1443/EXP/ES/2015"]
+check(p1["importe"] == 80000.0,
+      "el permiso 1443 junta a los dos clientes: $70,000 + $10,000 = %r"
+      % p1["importe"])
+check(p1["clientes_distintos"] == 2,
+      "y cuenta 2 clientes distintos, como en el ranking de monedero: %r"
+      % p1["clientes_distintos"])
+check(sorted(p1["clientes"]) == ["BETA LOGISTICA", "GAMA TRANSPORTES"],
+      "con sus nombres, para poder llamarles: %r" % p1["clientes"])
+check(p1["cargas"] == 11, "cargas sumadas: 9 + 2 = %r" % p1["cargas"])
+check(abs(p1["precio_litro"] - 80000.0 / 4000.0) < 1e-9,
+      "su precio por litro se recalcula sobre el total, no se promedian "
+      "promedios: %r" % p1["precio_litro"])
+check(rd2["estaciones_directas"][0]["permiso"] == "PL/1443/EXP/ES/2015",
+      "ordenadas por importe: %r"
+      % [e["permiso"] for e in rd2["estaciones_directas"]])
+
+# Sin el argumento, las secciones existen vacías (no faltan las llaves).
+check(rk["combustible_directo"] == [] and rk["estaciones_directas"] == [],
+      "sin compra directa, las secciones vienen vacías: %r"
+      % [rk["combustible_directo"], rk["estaciones_directas"]])
+
+
 # ── El Excel se escribe de verdad ─────────────────────────────────────────
 destino = os.path.join(tempfile.mkdtemp(prefix="_prueba_discovery_xlsx_"), "d.xlsx")
-de.escribir_xlsx(rk, destino)
+de.escribir_xlsx(rd2, destino)
 check(os.path.exists(destino) and os.path.getsize(destino) > 0,
       "escribir_xlsx() deja un archivo con contenido en %s" % destino)
 
@@ -509,8 +606,17 @@ import openpyxl
 libro = openpyxl.load_workbook(destino)
 check(libro.sheetnames == ["Clientes", "Estaciones", "Monederos",
                            "Sin detalle de estación", "Otros cargos",
+                           "Combustible directo", "Estaciones directas",
                            "Sospechosos"],
-      "las seis hojas, en orden: %r" % libro.sheetnames)
+      "las ocho hojas, en orden — las dos de compra directa van juntas y "
+      "despues de las de monedero, para no confundirse: %r" % libro.sheetnames)
+
+hd = libro["Estaciones directas"]
+check(hd.cell(row=1, column=1).value == "Permiso CRE",
+      "la hoja de estaciones directas se encabeza por permiso, no por RFC: %r"
+      % hd.cell(row=1, column=1).value)
+check(hd.cell(row=2, column=1).value == "PL/1443/EXP/ES/2015",
+      "y su primer renglon es la de mayor importe: %r" % hd.cell(row=2, column=1).value)
 hoja = libro["Estaciones"]
 check(hoja.cell(row=1, column=1).value == "RFC estación",
       "la hoja de estaciones trae encabezados legibles: %r"

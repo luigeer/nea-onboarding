@@ -14,11 +14,17 @@ onboarding; aquí la pregunta es del portafolio completo.
 Uso:
     python discovery_estaciones.py resumen "<ruta del zip o carpeta>"
     python discovery_estaciones.py xlsx    "<ruta del zip o carpeta>"
-    python discovery_estaciones.py xlsx    "<ruta>" --comisiones
+    python discovery_estaciones.py xlsx    "<ruta>" --comisiones --directo
 
-Sin `--comisiones` no se toca la red: todo sale de los archivos descargados.
-Con `--comisiones` se le pide a Syntage lo único que no está en esos archivos
-—cuánto le cobra el monedero a cada cliente— vía `comisiones_monedero.py`.
+Sin banderas no se toca la red: todo sale de los archivos descargados. Las
+dos banderas piden a Syntage lo que no está en esos archivos:
+
+- `--comisiones`: cuánto le cobra el monedero a cada cliente
+  (`comisiones_monedero.py`).
+- `--directo`: la gasolina que algunos clientes compran SIN monedero, factura
+  por factura (`combustible_directo.py`). Va en su propia sección del reporte
+  a propósito — es otro negocio, y mezclarla haría ver a esos clientes como
+  si tuvieran comisión cero.
 
 **Dos fuentes, cada una con lo que sí puede dar.** Se confirmó contra una
 descarga real de 17 clientes:
@@ -327,7 +333,92 @@ def _cruzar_comisiones(fila, monederos_rfc, comisiones, cargado_por_mes):
         fila["pct_total"] = (explicita + administrativa + otros) / base
 
 
-def analizar(ruta, comisiones=None):
+def _seccion_combustible_directo(directo, razones_sociales):
+    """La sección de compra directa: por cliente y por estación (permiso CRE).
+
+    Va APARTE del análisis de monederos a propósito. Son dos negocios: a un
+    cliente de monedero se le compite con pricing de comisión, a uno directo
+    con red de estaciones. Mezclarlos haría ver al segundo como si tuviera
+    comisión cero, y metería al ranking de estaciones de monedero un volumen
+    que nunca pasó por un monedero.
+
+    Ver `combustible_directo.py` para de dónde salen estos desgloses."""
+    por_cliente = {}
+    estaciones = {}
+
+    for (rfc_cliente, _rfc_emisor), d in (directo or {}).items():
+        if d.get("error") or not d.get("facturas"):
+            continue
+        c = por_cliente.setdefault(rfc_cliente, {
+            "rfc_cliente": rfc_cliente,
+            "razon_social": razones_sociales.get(rfc_cliente),
+            "gasolineras_set": set(),
+            "facturas": 0,
+            "litros": 0.0,
+            "importe": 0.0,
+            "meses_set": set(),
+        })
+        c["facturas"] += d["facturas"]
+        c["litros"] += d["litros"]
+        c["importe"] += d["importe"]
+        c["meses_set"].update(d.get("meses") or {})
+
+        for e in d.get("estaciones") or []:
+            c["gasolineras_set"].add(e["rfc_emisor"])
+            # La clave es el permiso CRE: identifica la estación física. Un
+            # solo emisor factura por 35 permisos distintos en datos reales.
+            x = estaciones.setdefault(e["permiso"], {
+                "permiso": e["permiso"],
+                "rfc_emisor": e["rfc_emisor"],
+                "nombre_emisor": e.get("nombre_emisor"),
+                "cargas": 0,
+                "litros": 0.0,
+                "importe": 0.0,
+                "clientes_set": set(),
+                "combustibles_set": set(),
+                "meses": 0,
+            })
+            x["cargas"] += e["cargas"]
+            x["litros"] += e["litros"]
+            x["importe"] += e["importe"]
+            x["clientes_set"].add(rfc_cliente)
+            x["combustibles_set"].update(e.get("combustibles") or [])
+            x["meses"] = max(x["meses"], e.get("meses_activos") or 0)
+
+    filas_clientes = [{
+        "rfc_cliente": c["rfc_cliente"],
+        "razon_social": c["razon_social"],
+        "gasolineras": sorted(c["gasolineras_set"]),
+        "facturas": c["facturas"],
+        "meses": len(c["meses_set"]),
+        "litros": round(c["litros"], 2),
+        "importe": round(c["importe"], 2),
+        "promedio_mensual": _promedio(c["importe"], len(c["meses_set"])),
+        # El precio se recalcula sobre los totales; promediar promedios daría
+        # otro número, y este se va a comparar contra el de un monedero.
+        "precio_litro": (c["importe"] / c["litros"]) if c["litros"] else None,
+    } for c in por_cliente.values()]
+    filas_clientes.sort(key=lambda f: -f["importe"])
+
+    filas_estaciones = [{
+        "permiso": e["permiso"],
+        "rfc_emisor": e["rfc_emisor"],
+        "nombre_emisor": e["nombre_emisor"],
+        "cargas": e["cargas"],
+        "litros": round(e["litros"], 2),
+        "importe": round(e["importe"], 2),
+        "precio_litro": (e["importe"] / e["litros"]) if e["litros"] else None,
+        "clientes_distintos": len(e["clientes_set"]),
+        "clientes": sorted(razones_sociales.get(r) or r for r in e["clientes_set"]),
+        "combustibles": sorted(e["combustibles_set"]),
+        "meses_activos": e["meses"],
+    } for e in estaciones.values()]
+    filas_estaciones.sort(key=lambda f: (-f["importe"], -f["clientes_distintos"]))
+
+    return filas_clientes, filas_estaciones
+
+
+def analizar(ruta, comisiones=None, combustible_directo=None):
     """Lee todas las facturas de `ruta` (un zip o una carpeta) y devuelve los
     agregados del discovery.
 
@@ -616,12 +707,25 @@ def analizar(ruta, comisiones=None):
 
     otros_cargos.sort(key=lambda o: -o["importe"])
 
+    # Las razones sociales que ya se conocen, de cualquier fuente: la sección
+    # de compra directa las necesita y su desglose no las trae.
+    razones = {}
+    for f in filas_clientes + filas_sin_detalle:
+        if f.get("razon_social"):
+            razones[f["rfc_cliente"]] = f["razon_social"]
+    for f in filas_csv.values():
+        razones.setdefault(f["rfc_cliente"], f["razon_social"])
+    directo_clientes, directo_estaciones = _seccion_combustible_directo(
+        combustible_directo, razones)
+
     return {
         "clientes": filas_clientes,
         "estaciones": filas_estaciones,
         "monederos": filas_monederos,
         "sin_detalle": filas_sin_detalle,
         "otros_cargos": otros_cargos,
+        "combustible_directo": directo_clientes,
+        "estaciones_directas": directo_estaciones,
         "sospechosos": sospechosos,
         "cfdis_leidos": len(cfdis),
         "facturas_en_csv": len(filas_csv),
@@ -633,6 +737,10 @@ def analizar(ruta, comisiones=None):
 # ─────────────────────────────────────────────────────────────────────────────
 def _pct(v):
     return None if v is None else round(v * 100, 2)
+
+
+def _redondeo(v, dec=2):
+    return None if v is None else round(v, dec)
 
 
 HOJAS = [
@@ -705,6 +813,33 @@ HOJAS = [
         ("Importe", lambda f: f["importe"]),
         ("Folio fiscal", lambda f: f["folio_fiscal"]),
     ]),
+    # Las dos hojas de compra directa van juntas y DESPUÉS de las de
+    # monedero. Son otro negocio: aquí no hay comisión que comparar, hay una
+    # gasolinera con la que ya se factura directo.
+    ("Combustible directo", [
+        ("RFC", lambda f: f["rfc_cliente"]),
+        ("Razón social", lambda f: f["razon_social"]),
+        ("Gasolinera(s)", lambda f: ", ".join(f["gasolineras"])),
+        ("Facturas", lambda f: f["facturas"]),
+        ("Meses", lambda f: f["meses"]),
+        ("Litros", lambda f: f["litros"]),
+        ("Importe total", lambda f: f["importe"]),
+        ("Promedio mensual", lambda f: f["promedio_mensual"]),
+        ("Precio por litro", lambda f: _redondeo(f["precio_litro"], 3)),
+    ]),
+    ("Estaciones directas", [
+        ("Permiso CRE", lambda f: f["permiso"]),
+        ("RFC emisor", lambda f: f["rfc_emisor"]),
+        ("Nombre emisor", lambda f: f["nombre_emisor"]),
+        ("Importe total", lambda f: f["importe"]),
+        ("Litros", lambda f: f["litros"]),
+        ("Precio por litro", lambda f: _redondeo(f["precio_litro"], 3)),
+        ("Clientes distintos", lambda f: f["clientes_distintos"]),
+        ("Cargas", lambda f: f["cargas"]),
+        ("Meses activos", lambda f: f["meses_activos"]),
+        ("Clientes", lambda f: ", ".join(f["clientes"])),
+        ("Combustibles", lambda f: ", ".join(f["combustibles"])),
+    ]),
     ("Sospechosos", [
         ("RFC cliente", lambda f: f["rfc_cliente"]),
         ("RFC monedero", lambda f: f["rfc_monedero"]),
@@ -723,6 +858,8 @@ _LLAVE_DE_HOJA = {
     "Monederos": "monederos",
     "Sin detalle de estación": "sin_detalle",
     "Otros cargos": "otros_cargos",
+    "Combustible directo": "combustible_directo",
+    "Estaciones directas": "estaciones_directas",
     "Sospechosos": "sospechosos",
 }
 
@@ -790,7 +927,8 @@ def _tabla_comisiones(r, tope):
                 _porciento(c["proporcion_combustible"]),
                 _porciento(c["pct_comision_sobre_fondeo"]),
                 _porciento(c["pct_sobre_fondeo"])))
-        print("\n  '%% combust.' es qué parte del fondeo es gasolina. Donde es "
+        # Sin formateo de por medio, un "%%" se imprimiría literal.
+        print("\n  '% combust.' es qué parte del fondeo es gasolina. Donde es "
               "bajo, la comisión\n  es en buena medida de otro producto "
               "(despensa, restaurante), no del combustible.")
 
@@ -826,6 +964,47 @@ def _tabla_comisiones(r, tope):
         for c in declara:
             print("  %-30s %d vez(ces)" % (
                 (c["razon_social"] or "")[:30], c["declara_cero"]))
+
+
+def _tabla_directo(r, tope):
+    """La sección de compra directa, separada de la de monederos con su propio
+    encabezado: son dos negocios distintos y el reporte no debe sugerir que
+    un cliente que compra directo tiene 'comisión cero'."""
+    # Separador en ASCII, no en caracteres de caja: la consola de Windows
+    # usa cp1252 y un "═" (U+2550) truena la corrida entera al redirigir la
+    # salida. Las vocales acentuadas sí caben en cp1252; los de caja, no.
+    print("\n" + "=" * 78)
+    print("COMBUSTIBLE COMPRADO DIRECTO - sin monedero de por medio")
+    print("Estos clientes NO tienen comisión que negociar: le facturan la "
+          "gasolina\ndirecto a la estación. Se les compite con red, no con "
+          "pricing.")
+    print("=" * 78)
+
+    print("\n  %-30s %8s %13s %13s %9s" % (
+        "Cliente", "Meses", "Litros", "Importe", "$/litro"))
+    for c in r["combustible_directo"]:
+        print("  %-30s %8d %13s %13s %9s" % (
+            (c["razon_social"] or c["rfc_cliente"])[:30], c["meses"],
+            format(c["litros"], ",.2f"), _pesos(c["importe"]),
+            format(c["precio_litro"] or 0, ",.3f")))
+    total = sum(c["importe"] for c in r["combustible_directo"])
+    print("  %-30s %8s %13s %13s" % ("TOTAL", "", "", _pesos(total)))
+
+    ed = r["estaciones_directas"]
+    print("\n  ESTACIONES de compra directa, por permiso CRE (%d) — el permiso "
+          "identifica\n  la estación física; un mismo emisor factura por varias."
+          % len(ed))
+    print("  %-24s %13s %11s %9s %9s %7s" % (
+        "Permiso CRE", "Importe", "Litros", "$/litro", "Clientes", "Cargas"))
+    for e in ed[:tope]:
+        print("  %-24s %13s %11s %9s %9d %7d" % (
+            (e["permiso"] or "(sin permiso)")[:24], _pesos(e["importe"]),
+            format(e["litros"], ",.2f"), format(e["precio_litro"] or 0, ",.3f"),
+            e["clientes_distintos"], e["cargas"]))
+    if len(ed) > tope:
+        print("  ... y %d permiso(s) más, todos en la hoja 'Estaciones directas'."
+              % (len(ed) - tope))
+    print("=" * 78)
 
 
 def imprimir_resumen(r, tope=12, con_comisiones=False):
@@ -871,6 +1050,9 @@ def imprimir_resumen(r, tope=12, con_comisiones=False):
         print("  %-14s %-34s %9d %14s %10s" % (
             m["rfc_monedero"], m["nombre"][:34], m["clientes"],
             _pesos(m["importe"]), pct))
+
+    if r["combustible_directo"]:
+        _tabla_directo(r, tope)
 
     if con_comisiones:
         _tabla_comisiones(r, tope)
@@ -934,13 +1116,24 @@ def main(argv):
         return 1
 
     con_comisiones = "--comisiones" in argv
+    con_directo = "--directo" in argv
     r = analizar(ruta)
 
+    directo = None
+    if con_directo:
+        # La compra directa tampoco está en los archivos descargados: esas
+        # facturas traen litros y precio en sus conceptos, y viven en la API.
+        import combustible_directo as cdir
+        pares = pares_cliente_monedero(r)
+        print("Buscando combustible facturado directo en %d (cliente, emisor). "
+              "Cachea en out/combustible_directo.\n" % len(pares))
+        directo = cdir.recolectar(sorted(pares),
+                                  aviso=lambda t: print("  %s" % t))
+        print()
+
+    comisiones = None
     if con_comisiones:
         # La comisión no está en los archivos descargados: se lee de Syntage.
-        # Se necesita el análisis offline primero para saber a qué pares
-        # preguntarle, y por eso se analiza dos veces — leer 86 XML es
-        # barato, y así este módulo no decide solo cuándo tocar la red.
         import comisiones_monedero
         pares = pares_cliente_monedero(r)
         print("Consultando la comisión de %d (cliente, monedero) en Syntage. "
@@ -949,7 +1142,11 @@ def main(argv):
         comisiones = comisiones_monedero.recolectar(
             sorted(pares), aviso=lambda t: print("  %s" % t))
         print()
-        r = analizar(ruta, comisiones=comisiones)
+
+    # Se rearma una sola vez con todo lo que se haya traído: dos llamadas
+    # separadas a analizar() harían que la segunda pisara lo de la primera.
+    if comisiones or directo:
+        r = analizar(ruta, comisiones=comisiones, combustible_directo=directo)
 
     imprimir_resumen(r, con_comisiones=con_comisiones)
 
