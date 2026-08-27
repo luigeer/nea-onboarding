@@ -14,10 +14,10 @@ onboarding; aquí la pregunta es del portafolio completo.
 Uso:
     python discovery_estaciones.py resumen "<ruta del zip o carpeta>"
     python discovery_estaciones.py xlsx    "<ruta del zip o carpeta>"
-    python discovery_estaciones.py xlsx    "<ruta>" --comisiones --directo
+    python discovery_estaciones.py xlsx    "<ruta>" --comisiones --directo --precio
 
 Sin banderas no se toca la red: todo sale de los archivos descargados. Las
-dos banderas piden a Syntage lo que no está en esos archivos:
+tres banderas piden a Syntage lo que no está en esos archivos:
 
 - `--comisiones`: cuánto le cobra el monedero a cada cliente
   (`comisiones_monedero.py`).
@@ -25,6 +25,11 @@ dos banderas piden a Syntage lo que no está en esos archivos:
   por factura (`combustible_directo.py`). Va en su propia sección del reporte
   a propósito — es otro negocio, y mezclarla haría ver a esos clientes como
   si tuvieran comisión cero.
+- `--precio`: compara el precio por litro del monedero contra el de compra
+  directa, en la misma estación y el mismo día exacto (`precio_comparado.py`).
+  Implica `--directo`. La muestra hoy es chica —un solo par de clientes cruza
+  con fecha en común, 8 días— y el reporte lo dice explícitamente en vez de
+  presentarlo como si fuera representativo del portafolio.
 
 **Dos fuentes, cada una con lo que sí puede dar.** Se confirmó contra una
 descarga real de 17 clientes:
@@ -448,6 +453,7 @@ def analizar(ruta, comisiones=None, combustible_directo=None):
     estaciones = {}
     otros_cargos = []
     emisores_con_complemento = set()
+    cargos_diarios = []
 
     # Primera pasada: qué emisores son monedero de verdad (emitieron un
     # complemento) y qué CFDI no se pueden usar. Se separa de la suma porque
@@ -509,6 +515,18 @@ def analizar(ruta, comisiones=None, combustible_directo=None):
                 c["importe"] += importe
                 c["litros"] += litros
                 c["cargas"] += 1
+                # Cargas crudas con fecha, para precio_comparado.py: cruzar
+                # contra combustible_directo por (estación, día exacto) exige
+                # el detalle día a día, no el agregado mensual de arriba.
+                if cargo["fecha"] and litros:
+                    cargos_diarios.append({
+                        "rfc_cliente": rfc_cliente,
+                        "razon_social": c["razon_social"],
+                        "rfc_estacion": cargo["rfc_estacion"],
+                        "fecha": cargo["fecha"],
+                        "litros": litros,
+                        "importe": importe,
+                    })
                 # La unidad es el RFC de la estación, no el par (RFC, clave).
                 # Se confirmó con datos reales: la clave viene en "0" en 244
                 # de 397 casos y un mismo RFC llega a tener 18 claves. Partir
@@ -726,6 +744,11 @@ def analizar(ruta, comisiones=None, combustible_directo=None):
         "otros_cargos": otros_cargos,
         "combustible_directo": directo_clientes,
         "estaciones_directas": directo_estaciones,
+        "cargos_diarios": cargos_diarios,
+        # Se llena en main() con --precio, no aquí: cruzar contra el
+        # combustible directo necesita el resultado ya consultado a Syntage
+        # con esa bandera, y analizar() por sí sola no toca la red.
+        "comparacion_precio": [],
         "sospechosos": sospechosos,
         "cfdis_leidos": len(cfdis),
         "facturas_en_csv": len(filas_csv),
@@ -840,6 +863,15 @@ HOJAS = [
         ("Clientes", lambda f: ", ".join(f["clientes"])),
         ("Combustibles", lambda f: ", ".join(f["combustibles"])),
     ]),
+    ("Precio comparado", [
+        ("RFC estación", lambda f: f["rfc_estacion"]),
+        ("Días comparados", lambda f: f["dias_comparados"]),
+        ("Precio monedero $/L", lambda f: _redondeo(f["precio_monedero"], 4)),
+        ("Precio directo $/L", lambda f: _redondeo(f["precio_directo"], 4)),
+        ("Diferencia %", lambda f: _pct(f["diferencia_pct"])),
+        ("Clientes vía monedero", lambda f: ", ".join(f["clientes_monedero"])),
+        ("Clientes compra directa", lambda f: ", ".join(f["clientes_directo"])),
+    ]),
     ("Sospechosos", [
         ("RFC cliente", lambda f: f["rfc_cliente"]),
         ("RFC monedero", lambda f: f["rfc_monedero"]),
@@ -860,6 +892,7 @@ _LLAVE_DE_HOJA = {
     "Otros cargos": "otros_cargos",
     "Combustible directo": "combustible_directo",
     "Estaciones directas": "estaciones_directas",
+    "Precio comparado": "comparacion_precio",
     "Sospechosos": "sospechosos",
 }
 
@@ -1007,6 +1040,32 @@ def _tabla_directo(r, tope):
     print("=" * 78)
 
 
+def _tabla_precio_comparado(r, tope):
+    filas = r.get("comparacion_precio") or []
+    print("\n" + "=" * 78)
+    print("PRECIO POR LITRO: monedero vs compra directa, misma estacion, mismo dia")
+    if not filas:
+        print("Ningun (estacion, dia) tiene carga de AMBOS lados todavia. Se "
+              "necesita mas\nhistorico descargado, o mas clientes de compra "
+              "directa en la misma estacion\nque un cliente de monedero.")
+        print("=" * 78)
+        return
+    total_dias = sum(f["dias_comparados"] for f in filas)
+    print("MUESTRA CHICA: %d dia(s) comparado(s) en %d estacion(es). No es "
+          "una muestra\nrepresentativa del portafolio - es lo unico que hoy "
+          "cruza." % (total_dias, len(filas)))
+    print("\n  %-16s %8s %14s %14s %10s" % (
+        "RFC estación", "Días", "Monedero $/L", "Directo $/L", "Diferencia"))
+    for f in filas[:tope]:
+        print("  %-16s %8d %14s %14s %10s" % (
+            f["rfc_estacion"], f["dias_comparados"],
+            format(f["precio_monedero"] or 0, ",.3f"),
+            format(f["precio_directo"] or 0, ",.3f"),
+            _porciento(f["diferencia_pct"])))
+    print("  (Diferencia negativa = el monedero sale MAS BARATO por litro.)")
+    print("=" * 78)
+
+
 def imprimir_resumen(r, tope=12, con_comisiones=False):
     print("%d CFDI leídos, %d facturas listadas en CSV.\n"
           % (r["cfdis_leidos"], r["facturas_en_csv"]))
@@ -1053,6 +1112,9 @@ def imprimir_resumen(r, tope=12, con_comisiones=False):
 
     if r["combustible_directo"]:
         _tabla_directo(r, tope)
+
+    if "_comparacion_dias" in r:
+        _tabla_precio_comparado(r, tope)
 
     if con_comisiones:
         _tabla_comisiones(r, tope)
@@ -1116,7 +1178,8 @@ def main(argv):
         return 1
 
     con_comisiones = "--comisiones" in argv
-    con_directo = "--directo" in argv
+    con_precio = "--precio" in argv
+    con_directo = "--directo" in argv or con_precio
     r = analizar(ruta)
 
     directo = None
@@ -1147,6 +1210,24 @@ def main(argv):
     # separadas a analizar() harían que la segunda pisara lo de la primera.
     if comisiones or directo:
         r = analizar(ruta, comisiones=comisiones, combustible_directo=directo)
+
+    if con_precio:
+        # discovery_estaciones no reimplementa el cruce: le pasa a
+        # precio_comparado.comparar() las cargas de monedero (con fecha, ya
+        # en r["cargos_diarios"]) y las de compra directa (con fecha, dentro
+        # de cada desglose de `directo`), y usa el resultado tal cual.
+        import precio_comparado
+        razon_de = {c["rfc_cliente"]: c["razon_social"] for c in r["combustible_directo"]}
+        cargas_directas_planas = [
+            {"rfc_cliente": rfc_cliente, "razon_social": razon_de.get(rfc_cliente),
+             "rfc_estacion": c["rfc_estacion"], "fecha": c["fecha"],
+             "litros": c["litros"], "importe": c["importe"]}
+            for (rfc_cliente, _rfc_emisor), d in (directo or {}).items()
+            for c in d.get("cargas") or []
+        ]
+        comparacion = precio_comparado.comparar(r["cargos_diarios"], cargas_directas_planas)
+        r["comparacion_precio"] = comparacion["estaciones"]
+        r["_comparacion_dias"] = comparacion["dias"]
 
     imprimir_resumen(r, con_comisiones=con_comisiones)
 

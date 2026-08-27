@@ -113,6 +113,16 @@ check(d["meses"]["2026-03"]["importe"] == 2000.0,
 check(abs(d["precio_litro"] - 2600.0 / 120.0) < 1e-9,
       "precio promedio por litro: %r" % d["precio_litro"])
 
+# ── cargas: el detalle día a día, para cruzar contra el monedero ──────────
+check(len(d["cargas"]) == 3,
+      "una carga por concepto de combustible, sin agregar: %r" % len(d["cargas"]))
+por_fecha = {(c["fecha"], c["rfc_estacion"]): c for c in d["cargas"]}
+check(por_fecha[("2026-03-10", "GAS010101AA1")]["litros"] in (50.0, 40.0),
+      "cada carga trae su propia fecha y estación: %r" % d["cargas"])
+check(sum(c["importe"] for c in d["cargas"]) == d["importe"],
+      "la suma de las cargas cuadra con el importe total: %r"
+      % [sum(c["importe"] for c in d["cargas"]), d["importe"]])
+
 
 # ── Por estación: el permiso CRE, no el RFC del emisor ────────────────────
 # Un solo emisor factura por 35 permisos distintos en datos reales: agrupar

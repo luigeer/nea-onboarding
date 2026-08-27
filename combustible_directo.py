@@ -49,7 +49,8 @@ CARPETA_CACHE = os.path.join(RAIZ, "out", "combustible_directo")
 
 # Se sube cuando cambia la forma del desglose: un caché escrito por una
 # versión anterior se descarta en vez de producir números mal en silencio.
-VERSION_CACHE = 1
+# v2: se agregó "cargas" (detalle día a día, para precio_comparado.py).
+VERSION_CACHE = 2
 
 # La serie 1510 del catálogo ClaveProdServ del SAT son los combustibles.
 # Los lubricantes viven en 1512, así que el prefijo no los atrapa.
@@ -91,6 +92,9 @@ def desglosar(facturas):
     litros = importe = 0.0
     meses = {}
     estaciones = {}
+    # Cargas crudas con fecha, para precio_comparado.py: cruzar contra el
+    # monedero por (estación, día exacto) exige el detalle día a día.
+    cargas = []
 
     for f in facturas:
         if f.get("type") != "I" or not f.get("xml"):
@@ -102,6 +106,12 @@ def desglosar(facturas):
         issued_at = f.get("issuedAt") or ""
         mes = (estaciones_monedero._mes_facturacion(issued_at)
                if issued_at else None)
+        # El día, SIN la corrección de zona horaria que usa _mes_facturacion:
+        # se confirmó contra el traslape real con un cliente de monedero (8
+        # días en común, mismo criterio que usa discovery_estaciones para el
+        # día del complemento) que issuedAt[:10] es el día correcto para
+        # cruzar, no el que resulta de restarle 6 horas.
+        dia = issued_at[:10] or None
         rfc_emisor = ((f.get("issuer") or {}).get("rfc")) or None
 
         for i in conceptos:
@@ -109,6 +119,9 @@ def desglosar(facturas):
             m = float(i.get("totalAmount") or 0)
             litros += l
             importe += m
+            if dia and l:
+                cargas.append({"rfc_estacion": rfc_emisor, "fecha": dia,
+                               "litros": l, "importe": m})
             if mes:
                 x = meses.setdefault(mes, {"litros": 0.0, "importe": 0.0, "cargas": 0})
                 x["litros"] += l
@@ -158,6 +171,7 @@ def desglosar(facturas):
         "precio_litro": _precio(importe, litros),
         "meses": meses,
         "estaciones": filas_estaciones,
+        "cargas": cargas,
         "error": None,
     }
 
@@ -165,7 +179,7 @@ def desglosar(facturas):
 def _vacio(error=None):
     return {"version": VERSION_CACHE, "facturas": 0, "litros": 0.0,
             "importe": 0.0, "precio_litro": None, "meses": {},
-            "estaciones": [], "error": error}
+            "estaciones": [], "cargas": [], "error": error}
 
 
 def _ruta_cache(carpeta, rfc_cliente, rfc_emisor):

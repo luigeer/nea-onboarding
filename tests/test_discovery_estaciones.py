@@ -595,6 +595,20 @@ check(rk["combustible_directo"] == [] and rk["estaciones_directas"] == [],
       % [rk["combustible_directo"], rk["estaciones_directas"]])
 
 
+# ── Precio comparado: se arma con lo que ya trae el análisis ──────────────
+# analizar() expone cargos_diarios (monedero) con fecha; combustible_directo
+# expone "cargas" (compra directa) con fecha. discovery_estaciones.py no
+# reimplementa el cruce — se lo pasa tal cual a precio_comparado.comparar().
+check(len(r["cargos_diarios"]) >= 2,
+      "el análisis expone las cargas de monedero con fecha, para cruzarlas "
+      "afuera: %r" % r["cargos_diarios"])
+cd1 = r["cargos_diarios"][0]
+check(set(["rfc_cliente", "rfc_estacion", "fecha", "litros", "importe"])
+      <= set(cd1),
+      "cada carga trae lo que precio_comparado.comparar() necesita: %r"
+      % sorted(cd1))
+
+
 # ── El Excel se escribe de verdad ─────────────────────────────────────────
 destino = os.path.join(tempfile.mkdtemp(prefix="_prueba_discovery_xlsx_"), "d.xlsx")
 de.escribir_xlsx(rd2, destino)
@@ -607,8 +621,8 @@ libro = openpyxl.load_workbook(destino)
 check(libro.sheetnames == ["Clientes", "Estaciones", "Monederos",
                            "Sin detalle de estación", "Otros cargos",
                            "Combustible directo", "Estaciones directas",
-                           "Sospechosos"],
-      "las ocho hojas, en orden — las dos de compra directa van juntas y "
+                           "Precio comparado", "Sospechosos"],
+      "las nueve hojas, en orden — las de compra directa van juntas y "
       "despues de las de monedero, para no confundirse: %r" % libro.sheetnames)
 
 hd = libro["Estaciones directas"]
