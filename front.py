@@ -587,14 +587,41 @@ def _tab_monedero(folio, exp):
             for mes, c in sorted(m["comision"].items()):
                 st.write("**Comisión %s:** $%s" % (mes, format(c["monto"], ",.2f")))
 
-        st.write("**Qué descargar del panel de Syntage:**")
-        import pandas as pd
-        st.dataframe(pd.DataFrame([{
-            "Mes": p["mes"], "Archivo esperado": p["archivo_esperado"],
-            "Folio fiscal": p["folio_fiscal"],
-        } for p in m["plan_descarga"]]), use_container_width=True, hide_index=True)
+        st.write("**Qué descargar del panel de Syntage, y subir aquí:**")
+        _subir_descargas_monedero(folio, m)
 
         _tab_monedero_reporte(folio, rfc_cliente, m, revision)
+
+
+def _subir_descargas_monedero(folio, m, carpeta="descargas/monederos"):
+    """Una fila por mes esperado, con su propio uploader.
+
+    El archivo que Syntage entrega viene nombrado por UUID; antes había que
+    bajarlo y renombrarlo a mano siguiendo la convención
+    RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.{pdf,xml} para que
+    estado_cuenta_monedero.py lo reconociera. Aquí el nombre correcto ya se
+    conoce (es "archivo_esperado"), así que se usa al guardar y no hace falta
+    renombrar nada — solo conservar la extensión real de lo que se subió,
+    porque el XML es preferible al PDF cuando el panel lo permite.
+    """
+    import os
+
+    os.makedirs(carpeta, exist_ok=True)
+    for p in m["plan_descarga"]:
+        base, _ = os.path.splitext(p["archivo_esperado"])
+        col1, col2, col3 = st.columns([2, 3, 3])
+        col1.write(p["mes"])
+        col2.caption(p["folio_fiscal"] or "")
+        subido = col3.file_uploader(
+            p["archivo_esperado"], type=["pdf", "xml"],
+            key="subir_%s_%s_%s" % (folio, m["rfc_monedero"], p["mes"]),
+            label_visibility="collapsed")
+        if subido is not None:
+            _, ext = os.path.splitext(subido.name)
+            destino = os.path.join(carpeta, base + ext.lower())
+            with open(destino, "wb") as f:
+                f.write(subido.getbuffer())
+            col3.caption("Guardado como %s" % os.path.basename(destino))
 
 
 def _tab_monedero_reporte(folio, rfc_cliente, m, revision):
