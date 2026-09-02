@@ -41,7 +41,8 @@ def completo(**cambios):
         {"tipo": "csf_cliente", "fecha_emision": "2026-07-01", "legible": True},
         {"tipo": "acta_constitutiva", "fecha_emision": "2020-01-15", "legible": True},
         {"tipo": "comprobante_domicilio", "fecha_emision": "2026-07-20", "legible": True},
-        {"tipo": "identificacion_rep", "vigente_hasta": "2031-12-31", "legible": True},
+        {"tipo": "identificacion_rep", "vigente_hasta": "2031-12-31", "legible": True,
+         "domicilio_incluido": True},
         {"tipo": "autorizacion_buro", "fecha_emision": "2026-01-10", "legible": True},
         {"tipo": "credencial_sat", "fecha_emision": "2026-07-01", "legible": True},
         {"tipo": "cotizacion", "fecha_emision": "2026-07-31", "legible": True},
@@ -91,6 +92,16 @@ check(any("estados de cuenta" in h["asunto"] for h in r.por_gravedad(INTERMEDIA)
       "que falte un estado de cuenta es de gravedad intermedia")
 check(len([h for h in r.hallazgos if h["tipo"] == "estados_cuenta"]) == 1,
       "y se pide en un solo renglón, no en dos")
+
+# La cotización firmada nunca se exige: decisión de negocio, no hay hallazgo
+# que pedirla ni en riesgo ni en generación.
+e = completo()
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "cotizacion"]
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(not any("cotiz" in h["asunto"].lower() for h in r.hallazgos),
+      "la falta de cotización firmada no genera ningún hallazgo")
+check(r.puede_pasar_a_riesgo and r.puede_generar,
+      "y las dos compuertas quedan abiertas sin ella")
 
 # Lo que cumplimiento ya aceptó por escrito no se vuelve a pedir.
 e = completo()
@@ -612,7 +623,8 @@ def bc_con(*docs):
                                         "participacion": {"porcentaje": 40.0}}]
     e["documentos"] = [d for d in e["documentos"]
                        if d["tipo"] not in ("csf_beneficiario",
-                                            "identificacion_beneficiario")] + list(docs)
+                                            "identificacion_beneficiario",
+                                            "comprobante_domicilio_beneficiario")] + list(docs)
     return [h for h in revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA).hallazgos
             if h.get("tipo") == "beneficiario"]
 
@@ -620,7 +632,12 @@ def bc_con(*docs):
 CSF_BC = {"tipo": "csf_beneficiario", "sujeto": "ANA SOTO LOPEZ",
           "fecha_emision": "2026-07-01", "legible": True}
 ID_BC = {"tipo": "identificacion_beneficiario", "sujeto": "ANA SOTO LOPEZ",
-         "vigente_hasta": "2031-12-31", "legible": True}
+         "vigente_hasta": "2031-12-31", "legible": True, "domicilio_incluido": True}
+ID_BC_SIN_DOMICILIO = {"tipo": "identificacion_beneficiario", "sujeto": "ANA SOTO LOPEZ",
+                       "vigente_hasta": "2031-12-31", "legible": True,
+                       "domicilio_incluido": False}
+COMPROBANTE_BC = {"tipo": "comprobante_domicilio_beneficiario", "sujeto": "ANA SOTO LOPEZ",
+                  "fecha_emision": "2026-07-20", "legible": True}
 
 h = bc_con()
 check(len(h) == 1 and "Constancia de Situación Fiscal e identificación" in h[0]["pedir"],
@@ -636,6 +653,17 @@ check(len(h) == 1 and h[0]["pedir"] == "Identificación oficial vigente de ANA S
 
 check(not bc_con(CSF_BC, ID_BC), "con los dos documentos no se pide nada")
 
+# La INE del beneficiario debe traer domicilio completo; si no, hace falta un
+# comprobante aparte (luz, teléfono o agua) — la CSF no cuenta como tal, así
+# que basta con no dársela por buena: nunca se marca como comprobante.
+h = bc_con(CSF_BC, ID_BC_SIN_DOMICILIO)
+check(len(h) == 1 and "domicilio" in h[0]["pedir"].lower()
+      and "ANA SOTO LOPEZ" in h[0]["pedir"],
+      "si la identificación no trae domicilio, se pide comprobante de domicilio")
+
+check(not bc_con(CSF_BC, ID_BC_SIN_DOMICILIO, COMPROBANTE_BC),
+      "y con el comprobante de domicilio ya no se pide nada")
+
 # Y cuando el beneficiario ES el representante legal, su INE ya esta en el
 # expediente como identificacion_rep: es la misma INE de la misma persona.
 e = completo()   # aqui el beneficiario CARLOS RUIZ SI es el representante legal
@@ -644,6 +672,17 @@ h = [x for x in revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA).hallazgos
 check(not h,
       "la identificacion del representante vale como la del beneficiario cuando son "
       "la misma persona: es la misma INE")
+
+# Y si esa misma INE no trae domicilio, igual hace falta el comprobante.
+e = completo()
+e["documentos"] = [d for d in e["documentos"] if d["tipo"] != "identificacion_rep"]
+e["documentos"].append({"tipo": "identificacion_rep", "vigente_hasta": "2031-12-31",
+                        "legible": True, "domicilio_incluido": False})
+h = [x for x in revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA).hallazgos
+     if x.get("tipo") == "beneficiario"]
+check(len(h) == 1 and "domicilio" in h[0]["pedir"].lower(),
+      "la INE del representante sin domicilio tambien exige comprobante, aunque sea "
+      "la misma persona que el beneficiario")
 
 e = completo()
 e["beneficiarios_controladores"] = [{"nombre": "OTRA PERSONA DISTINTA",
