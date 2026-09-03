@@ -66,16 +66,17 @@ OBLIGATORIOS_PM = [
     ("comprobante_domicilio", "Comprobante de domicilio de la empresa", (GENERACION,)),
     ("identificacion_rep",    "Identificación oficial vigente del representante legal", (GENERACION,)),
     ("autorizacion_buro",     "Autorización de consulta de buró del representante", AMBAS),
-    ("cotizacion",            "Cotización firmada", AMBAS),
 ]
 
+# La cotización firmada nunca se exige como requisito: decisión de negocio.
+# No está en OBLIGATORIOS_PM ni OBLIGATORIOS_PF, así que su ausencia no genera
+# ningún hallazgo — ni bloquea riesgo ni generación.
 OBLIGATORIOS_PF = [
     ("csf_cliente",           "Constancia de Situación Fiscal", AMBAS),
     ("identificacion_rep",    "Identificación oficial vigente con fotografía", (GENERACION,)),
     ("comprobante_domicilio", "Comprobante de domicilio", (GENERACION,)),
     ("constancia_cuenta_propia", "Constancia de que actúa por cuenta propia o de un tercero", (GENERACION,)),
     ("autorizacion_buro",     "Autorización de consulta de buró", AMBAS),
-    ("cotizacion",            "Cotización firmada", AMBAS),
 ]
 
 
@@ -407,6 +408,7 @@ def _coherencia(exp, r):
 
     csfs = sujetos_de("csf_beneficiario")
     ids = sujetos_de("identificacion_beneficiario")
+    comprobantes_domicilio = sujetos_de("comprobante_domicilio_beneficiario")
     # Cuando el beneficiario controlador ES el representante legal —el caso más
     # común en una empresa familiar—, su identificación ya está en el expediente
     # como `identificacion_rep`. Es la misma INE de la misma persona: pedirla otra
@@ -415,6 +417,13 @@ def _coherencia(exp, r):
     if rep and presentes.get("identificacion_rep"):
         ids.add(rep)
 
+    def _id_docs_de(arriba):
+        propios = [d for d in presentes.get("identificacion_beneficiario", [])
+                  if (d.get("sujeto") or "").upper() == arriba]
+        if not propios and rep and arriba == rep:
+            propios = presentes.get("identificacion_rep", [])
+        return propios
+
     for b in _get(exp, "beneficiarios_controladores", []):
         nombre = b.get("nombre")
         if not nombre:
@@ -422,22 +431,39 @@ def _coherencia(exp, r):
         arriba = nombre.upper()
         falta_csf = arriba not in csfs
         falta_id = arriba not in ids
-        if not (falta_csf or falta_id):
-            continue
-        if falta_csf and falta_id:
-            pedir = ("Constancia de Situación Fiscal e identificación oficial "
-                     "vigente de %s" % nombre)
-            detalle = "no hay su CSF ni su identificación"
-        elif falta_csf:
-            pedir = "Constancia de Situación Fiscal de %s" % nombre
-            detalle = "su identificación ya está en el expediente; falta su CSF"
-        else:
-            pedir = "Identificación oficial vigente de %s" % nombre
-            detalle = "su CSF ya está en el expediente; falta su identificación"
-        r.anotar(INTERMEDIA,
-                 "Falta documentación del beneficiario %s" % nombre,
-                 "Está identificado como beneficiario controlador pero %s." % detalle,
-                 pedir=pedir, tipo="beneficiario", bloquea=(GENERACION,))
+
+        if falta_csf or falta_id:
+            if falta_csf and falta_id:
+                pedir = ("Constancia de Situación Fiscal e identificación oficial "
+                         "vigente de %s" % nombre)
+                detalle = "no hay su CSF ni su identificación"
+            elif falta_csf:
+                pedir = "Constancia de Situación Fiscal de %s" % nombre
+                detalle = "su identificación ya está en el expediente; falta su CSF"
+            else:
+                pedir = "Identificación oficial vigente de %s" % nombre
+                detalle = "su CSF ya está en el expediente; falta su identificación"
+            r.anotar(INTERMEDIA,
+                     "Falta documentación del beneficiario %s" % nombre,
+                     "Está identificado como beneficiario controlador pero %s." % detalle,
+                     pedir=pedir, tipo="beneficiario", bloquea=(GENERACION,))
+
+        # La identificación oficial debe traer el domicilio completo del
+        # beneficiario. Si no lo trae, hace falta un comprobante aparte —luz,
+        # teléfono o agua—; la Constancia de Situación Fiscal NO sirve como
+        # comprobante de domicilio, así que no se acepta en su lugar.
+        if not falta_id:
+            domicilio_incluido = any(d.get("domicilio_incluido")
+                                     for d in _id_docs_de(arriba))
+            if not domicilio_incluido and arriba not in comprobantes_domicilio:
+                r.anotar(INTERMEDIA,
+                         "Falta comprobante de domicilio del beneficiario %s" % nombre,
+                         "Su identificación oficial no trae domicilio completo, y "
+                         "la Constancia de Situación Fiscal no sirve como "
+                         "comprobante de domicilio.",
+                         pedir=("Comprobante de domicilio (luz, teléfono o agua) "
+                                "de %s" % nombre),
+                         tipo="beneficiario", bloquea=(GENERACION,))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

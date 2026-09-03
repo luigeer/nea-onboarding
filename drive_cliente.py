@@ -27,6 +27,7 @@ Uso:
     python drive_cliente.py listar FOLIO                documentos del cliente
     python drive_cliente.py bajar FOLIO [directorio]    descarga los documentos del cliente
     python drive_cliente.py subir FOLIO directorio      sube PDFs y manifiesto a 3 Documentos generados
+    python drive_cliente.py firmados FOLIO archivo...   sube documentos ya firmados a 4 Documentos firmados
     python drive_cliente.py superar FOLIO FILE_ID       mueve un documento a 0 Superados
     python drive_cliente.py reparar FOLIO               completa y renombra subcarpetas
 """
@@ -321,6 +322,10 @@ def main(argv):
         for f in subir_paquete(svc, args[0], args[1]):
             print("Subido: %s" % f["name"])
 
+    elif orden == "firmados" and len(args) >= 2:
+        for f in subir_firmados(svc, args[0], args[1:]):
+            print("Subido: %s" % f["name"])
+
     elif orden == "superar" and len(args) == 2:
         f = superar(svc, args[0], args[1])
         print("Movido a %s: %s" % (SUPERADOS, f.get("name", args[1])))
@@ -339,6 +344,31 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+
+
+def subir_firmados(svc, folio, archivos):
+    """Sube documentos ya firmados a '4 Documentos firmados'.
+
+    Van aparte de '3 Documentos generados': ahí vive la versión que se mandó a
+    firmar, aquí la que el cliente ya firmó. Se versiona igual que el resto —si
+    ya existe un archivo con el mismo nombre, el anterior pasa a '0 Superados'.
+    """
+    from googleapiclient.http import MediaFileUpload
+    exp = carpeta_expediente(svc, folio)
+    ids = asegurar_estructura(svc, exp["id"])
+    existentes = {f["name"]: f for f in hijos(svc, ids["4"])}
+
+    subidos = []
+    for ruta in archivos:
+        nombre = os.path.basename(ruta)
+        if nombre in existentes:
+            superar(svc, folio, existentes[nombre]["id"], ids=ids)
+        media = MediaFileUpload(ruta, mimetype="application/pdf")
+        f = svc.files().create(
+            body={"name": nombre, "parents": [ids["4"]]}, media_body=media,
+            fields=CAMPOS, supportsAllDrives=True).execute()
+        subidos.append(f)
+    return subidos
 
 
 def subir_analisis(svc, folio, archivos):
