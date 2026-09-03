@@ -337,8 +337,14 @@ def _encabezado(d, L):
     L.append("")
     L.append("Folio             %s" % d["folio"])
     L.append("RFC               %s" % (val.get("rfc") or "-"))
-    L.append("Actividad         %s" % (d["perfil"].get("actividad_principal") or "-"))
-    L.append("Alta ante el SAT  %s" % (d["perfil"].get("fecha_constitucion") or "-"))
+    # Syntage es la fuente preferida porque trae la actividad, la fecha de alta y
+    # los empleados en un solo lugar y actualizados; sin ella (cliente que no
+    # autorizó, o autorización que aún no procesa) se cae a lo que sí hay: la CSF,
+    # que solo trae actividad y fecha de inicio de operaciones, nunca empleados.
+    L.append("Actividad         %s" % (d["perfil"].get("actividad_principal")
+                                       or val.get("actividad_economica") or "-"))
+    L.append("Alta ante el SAT  %s" % (d["perfil"].get("fecha_constitucion")
+                                       or val.get("inicio_operaciones") or "-"))
     empleados = d["perfil"].get("empleados")
     L.append("Empleados         %s" % (empleados if empleados is not None else "-"))
     L.append("Línea solicitada  %s, pago %s" % (_pesos(sol.get("linea")),
@@ -400,6 +406,148 @@ def _bloque_modelo(d, L):
     L.append("    Estados de cuenta   %d periodo(s), saldo promedio %s"
              % (d["cuentas_meta"]["periodos"],
                 _pesos(d["cuentas_meta"]["saldo_promedio"])))
+    L.append("")
+
+
+def _bloque_finanzas(d, L):
+    """El detalle que el comité necesita para juzgar el número, no solo verlo.
+
+    'EL MODELO' ya dice qué módulo pesó cuánto; esto dice de dónde salieron esas
+    cifras — ejercicio por ejercicio y periodo por periodo — porque un score sin
+    los renglones que lo forman no se puede cuestionar, solo se puede creer.
+    """
+    fiscal, edos = d["fiscal"], d["estados_cuenta"]
+    if not fiscal and not edos:
+        return
+    L.append("DECLARACIÓN ANUAL Y ESTADOS DE CUENTA")
+    L.append("-" * 37)
+    if fiscal:
+        L.append("Declaración anual, por ejercicio (fuente: %s):"
+                 % (fiscal[0].get("fuente") or "-"))
+        for f in fiscal:
+            L.append("    %s   ingresos %-16s utilidad %-16s inventarios %s"
+                     % (f.get("ejercicio"), _pesos(f.get("ingresos_totales")),
+                        _pesos(f.get("utilidad_operacion")),
+                        _pesos(f.get("inventarios"))))
+        L.append("")
+    if edos:
+        L.append("Estados de cuenta, por periodo:")
+        for e in edos:
+            L.append("    %s a %s   %-10s saldo %-16s depósitos %-16s retiros %s"
+                     % (e.get("fecha_inicial") or "-", e.get("fecha_final") or "-",
+                        e.get("banco") or "-", _pesos(e.get("saldo_final")),
+                        _pesos(e.get("monto_depositos")),
+                        _pesos(e.get("monto_retiros"))))
+        L.append("")
+
+
+def _bloque_buro(d, L):
+    """Atrasos y créditos activos, en lenguaje llano.
+
+    El módulo de riesgo ya resume el buró en una nota; esto contesta las dos
+    preguntas que un comité hace de inmediato al ver esa nota —¿tiene atrasos?,
+    ¿cuánto crédito trae abierto?— sin que alguien tenga que ir a leer el PDF
+    del reporte para saberlo.
+    """
+    b = d["buro"]
+    if not b:
+        return
+    L.append("BURÓ DE CRÉDITO")
+    L.append("-" * 15)
+    if b.get("resultado") == "sin_historial":
+        L.append("Se consultó y no tiene historial crediticio.")
+        L.append("")
+        return
+
+    score = b.get("score_pyme")
+    L.append("Score PyME Plus   %s" % (score if score is not None else "-"))
+
+    mora = b.get("ocurrencias_mora")
+    vencido = b.get("saldo_vencido")
+    if mora or vencido:
+        L.append("Atrasos           SÍ — %s ocurrencia(s) de mora, %s vencido"
+                 % (mora if mora is not None else "-", _pesos(vencido)))
+    else:
+        L.append("Atrasos           Ninguno reportado")
+
+    abiertos = b.get("creditos_abiertos")
+    recientes = b.get("creditos_abiertos_ultimo_ano")
+    L.append("Créditos activos  %s abierto(s), %s en el último año (saldo actual %s)"
+             % (abiertos if abiertos is not None else "-",
+                recientes if recientes is not None else "-",
+                _pesos(b.get("saldo_actual"))))
+
+    consultas = b.get("consultas_12m")
+    L.append("Consultas (12m)   %s" % (consultas if consultas is not None else "-"))
+
+    if b.get("avales"):
+        L.append("Avales            %s" % b["avales"])
+    if b.get("prevenciones"):
+        L.append("Prevención        %s" % b["prevenciones"])
+    if b.get("previsor"):
+        for j, renglon in enumerate(_envolver(b["previsor"], 72)):
+            L.append("%s%s" % ("Aviso             " if j == 0 else "                  ",
+                               renglon))
+    L.append("")
+
+
+def _bloque_huella_digital(d, L):
+    """Giro, procedencia y presencia digital: lo que no sale de un balance.
+
+    Es el mismo perfil que alimenta el módulo de riesgo homónimo; aquí se
+    despliega completo porque el módulo solo entrega una nota, y una nota sin
+    los hechos detrás no se puede cuestionar.
+    """
+    p = d["perfil"]
+    giro = p.get("giro_codigo")
+    procedencia = p.get("procedencia_lead")
+    pd = p.get("presencia_digital") or {}
+    if not (giro or procedencia or pd):
+        return
+    L.append("HUELLA DIGITAL")
+    L.append("-" * 14)
+    L.append("Giro              %s" % (giro or "-"))
+    L.append("Procedencia       %s" % (procedencia or "-"))
+    if pd.get("sin_presencia"):
+        L.append("Presencia         sin sitio web ni redes")
+    else:
+        L.append("Sitio web         %s" % (pd.get("sitio_web") or "-"))
+        redes = pd.get("redes") or []
+        if redes:
+            L.append("Redes:")
+            for r in redes:
+                seg = r.get("seguidores")
+                L.append("    %-10s %-8s seguidores  %s"
+                        % (r.get("red") or "-", seg if seg is not None else "-",
+                           r.get("url") or ""))
+    L.append("")
+
+
+def _bloque_disclosure(d, L):
+    """Lo que el cliente NO entregó, dicho de frente y no como nota al pie.
+
+    Un score se calcula igual con módulos incompletos —se renormaliza y sigue
+    corriendo—, así que nada en 'EL MODELO' obliga a leer hasta aquí para
+    enterarse de que falta algo. Si el comité decide sin saber que faltó
+    Syntage o que los estados de cuenta llegaron censurados, decide sobre menos
+    información de la que cree tener.
+    """
+    faltas = []
+    if not (d["cobertura"].get("recursos_syntage") or 0):
+        faltas.append(
+            "El cliente NO autorizó la extracción de Syntage (SAT/CFDI). Los "
+            "ingresos y la actividad de este resumen salen de documentos "
+            "entregados a mano (declaraciones anuales, CSF), no de una fuente "
+            "verificada de forma independiente.")
+    for lim in d["datos"].get("limitaciones_informacion") or []:
+        faltas.append(lim)
+    if not faltas:
+        return
+    L.append("DISCLOSURE — INFORMACIÓN QUE NO SE PUDO VERIFICAR")
+    L.append("-" * 50)
+    for f in faltas:
+        for j, renglon in enumerate(_envolver(f, 72)):
+            L.append("  %s%s" % ("- " if j == 0 else "  ", renglon))
     L.append("")
 
 
@@ -548,6 +696,10 @@ def texto(d):
     L = []
     _encabezado(d, L)
     _bloque_modelo(d, L)
+    _bloque_finanzas(d, L)
+    _bloque_buro(d, L)
+    _bloque_huella_digital(d, L)
+    _bloque_disclosure(d, L)
     _bloque_autorizacion(d, L)
     _bloque_senales(d, L)
     _bloque_garantia(d, L)

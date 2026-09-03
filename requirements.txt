@@ -10,3 +10,6 @@ supabase>=2.0
 google-api-python-client
 google-auth-oauthlib
 streamlit>=1.40
+
+# Excel del discovery de estaciones (discovery_estaciones.py xlsx)
+openpyxl>=3.1
