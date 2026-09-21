@@ -42,7 +42,8 @@ IDENTIDAD = "identidad_y_background"
 # El orden dentro del PDF unido. Importa porque las divisiones son rangos de
 # página contiguos: si el orden cambia, los rangos dejan de cerrar.
 ORDEN = ["contrato", "contrato_pfae", "adenda_os_pm", "adenda_os_pf", "beneficiario_controlador",
-         "pld_pm", "pld_pf", "anexo_razonado", "domiciliacion"]
+         "pld_pm", "pld_pf", "anexo_razonado", "domiciliacion",
+         "grit_contrato", "grit_pld_pm", "grit_pld_pf", "grit_beneficiario_controlador"]
 
 ETIQUETAS = {
     "contrato": "Carátula del Contrato de Crédito",
@@ -54,7 +55,14 @@ ETIQUETAS = {
     "pld_pf": "Expediente de Identificación PLD",
     "anexo_razonado": "Anexo de Análisis Razonado",
     "domiciliacion": "Autorización de Domiciliación",
+    "grit_contrato": "Contrato de Prestación de Servicios (Grit Mobility)",
+    "grit_pld_pm": "Expediente de Identificación PLD (Grit Mobility)",
+    "grit_pld_pf": "Expediente de Identificación PLD (Grit Mobility)",
+    "grit_beneficiario_controlador": "Formato de Beneficiario Controlador (Grit Mobility)",
 }
+
+# Roles que firman por Nea/Grit mismos: firma propia, sin duda de identidad.
+ROLES_PROPIOS = ("nea", "cumplimiento", "grit", "cumplimiento_grit")
 
 
 def _division_de(clave, hay_domiciliacion):
@@ -71,6 +79,11 @@ def _division_de(clave, hay_domiciliacion):
         # separan. No hay una razón técnica; se respeta como está escrita.
         return ("Identificación del cliente" if hay_domiciliacion
                 else ETIQUETAS[clave])
+    if clave in ("grit_pld_pm", "grit_pld_pf", "grit_beneficiario_controlador"):
+        # El PLD y el Beneficiario Controlador de Grit Mobility siempre se
+        # identifican juntos: son el mismo trámite de identificación, solo que
+        # dirigido a Grit Mobility en vez de a Nea.
+        return "Identificación del cliente (Grit Mobility)"
     return ETIQUETAS.get(clave, clave)
 
 
@@ -79,7 +92,7 @@ def _nivel(firmante):
 
     El rol viene del manifiesto, que es la única fuente de quién firma qué.
     """
-    if firmante.get("rol") in ("nea", "cumplimiento"):
+    if firmante.get("rol") in ROLES_PROPIOS:
         return SIMPLE
     return IDENTIDAD
 

@@ -37,6 +37,7 @@ from generar_anexo_razonado import generar_anexo_razonado
 from generar_adenda import generar_adenda
 from generar_adenda_pf import generar_adenda_pf
 from generar_domiciliacion import generar_domiciliacion
+from generar_contrato_grit import generar_contrato_grit
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(BASE, "assets")
@@ -51,6 +52,17 @@ NEA_FIRMANTE = {"rol": "nea", "nombre": "Marcos Siqueiros Ballesteros",
 # firme alguien distinto, y entonces es una excepcion explicita.
 NEA_CUMPLIMIENTO = {"rol": "cumplimiento", "nombre": "Marcos Siqueiros Ballesteros",
                     "cargo": "Oficial de Cumplimiento"}
+
+# A partir de septiembre 2026, todo cliente firma también el Contrato de
+# Prestación de Servicios de Grit Mobility, S.A. de C.V. y su PLD/Beneficiario
+# Controlador — los use o no. Por instrucción de Luis, tanto el representante
+# de Grit Mobility en el contrato como su Responsable de Cumplimiento en el
+# PLD son la misma persona: Luis Gómez Montijano.
+GRIT_FIRMANTE = {"rol": "grit", "nombre": "Luis Gómez Montijano",
+                 "cargo": "Representante Legal de Grit Mobility, S.A. de C.V."}
+GRIT_CUMPLIMIENTO = {"rol": "cumplimiento_grit", "nombre": "Luis Gómez Montijano",
+                     "cargo": "Oficial de Cumplimiento",
+                     "empresa": "Grit Mobility, S.A. de C.V."}
 
 # clave -> (sufijo del archivo, función generadora, template o None, etiqueta)
 CATALOGO = {
@@ -75,6 +87,15 @@ CATALOGO = {
     "domiciliacion": ("Domiciliacion", generar_domiciliacion,
                       "Formato_Domiciliacion_Template.pdf",
                       "Autorización de Domiciliación"),
+    "grit_contrato": ("Grit_Contrato", generar_contrato_grit, None,
+                      "Contrato de Prestación de Servicios (Grit Mobility)"),
+    "grit_pld_pm": ("Grit_PLD", generar_pld, None,
+                   "Formato de Identificación PLD de Grit Mobility (Anexo 4, persona moral)"),
+    "grit_pld_pf": ("Grit_PLD", generar_pld_pf, None,
+                   "Formato de Identificación PLD de Grit Mobility (Anexo 3, persona física)"),
+    "grit_beneficiario_controlador": ("Grit_Beneficiario_Controlador", generar_beneficiario, None,
+                                      "Formato de Identificación del Beneficiario Controlador "
+                                      "(Grit Mobility)"),
 }
 
 
@@ -105,10 +126,14 @@ def _firmantes(clave, exp):
 
     if clave in ("contrato", "contrato_pfae"):
         return [cliente] + cofirmantes + [NEA_FIRMANTE]
-    if clave in ("pld_pm", "pld_pf"):
+    if clave == "grit_contrato":
+        return [cliente] + cofirmantes + [GRIT_FIRMANTE]
+    if clave in ("pld_pm", "pld_pf", "grit_pld_pm", "grit_pld_pf"):
         return [cliente] + cofirmantes
     if clave == "beneficiario_controlador":
         return [cliente] + cofirmantes + [cumplimiento]
+    if clave == "grit_beneficiario_controlador":
+        return [cliente] + cofirmantes + [GRIT_CUMPLIMIENTO]
     if clave == "anexo_razonado":
         # Documento interno del sujeto obligado: el cliente no lo suscribe.
         return [cumplimiento]

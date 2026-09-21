@@ -150,6 +150,23 @@ def expediente_vacio():
             "responsable": None,
         },
         "quien_lleno": None,
+
+        # Condiciones comerciales del Contrato de Prestación de Servicios de
+        # Grit Mobility (monedero de combustible). No son datos KYC, salen de
+        # la propuesta comercial ya negociada con el cliente.
+        "grit_monedero": {
+            "modelo_negocio": None,     # "prepago" | "postpago"
+            "comision": None,           # % sobre monto depositado
+            "cuota": None,              # anual o mensual, texto libre
+            "costo_tarjeta": None,
+            "comentarios": None,
+            "contacto": {"nombre": None, "telefono_1": None, "telefono_2": None,
+                        "correo": None},
+            # Si es None/vacío, el generador reutiliza cliente.validado.domicilio.
+            "domicilio_entrega": {"calle": None, "num_ext": None, "num_int": None,
+                                  "colonia": None, "cp": None, "municipio": None,
+                                  "estado": None},
+        },
     }
 
 
@@ -318,12 +335,21 @@ def documentos_aplicables(exp):
     tipo = _get(exp, "tipo_cliente")
     docs = ["contrato" if tipo == "persona_moral" else "contrato_pfae"]
 
+    # A partir de septiembre 2026, todo cliente firma también su PLD, su
+    # Beneficiario Controlador (si aplica) y su Contrato de Prestación de
+    # Servicios a nombre de Grit Mobility, S.A. de C.V. — los use o no. Son el
+    # mismo expediente KYC, solo dirigidos a un sujeto obligado distinto, así
+    # que siguen uno a uno a su equivalente de Nea.
+    docs.append("grit_contrato")
     if tipo == "persona_moral":
         docs.append("pld_pm")
+        docs.append("grit_pld_pm")
         if _get(exp, "beneficiarios_controladores"):
             docs.append("beneficiario_controlador")
+            docs.append("grit_beneficiario_controlador")
     else:
         docs.append("pld_pf")
+        docs.append("grit_pld_pf")
 
     if _requiere_anexo_razonado(exp):
         docs.append("anexo_razonado")

@@ -160,17 +160,17 @@ def page1(c, D):
                        "PERMANENTE)", size=8, bold=True, dy=10)
     sf(c, 8)
     c.setFillColor(ROJO)
-    c.drawCentredString(W / 2, y, "GRIT PAYMENT SOLUTIONS, S.A.P.I. DE C.V.")
+    c.drawCentredString(W / 2, y, D.get("sujeto_obligado_nombre", "GRIT PAYMENT SOLUTIONS, S.A.P.I. DE C.V."))
     y -= 9
-    c.drawCentredString(W / 2, y, DOMICILIO_RESPONSABLE)
+    c.drawCentredString(W / 2, y, D.get("sujeto_obligado_domicilio", DOMICILIO_RESPONSABLE))
     c.setFillColor(colors.black)
     y -= 16
 
     sf(c, 7.5)
     c.drawString(330, y, "Fecha de la operación (dd/mm/aa): %s" % D["fecha_operacion"])
     y -= 10
-    c.drawString(262, y, "Actividad Vulnerable que se pretende realizar: Emisión de Tarjetas de "
-                         "Servicio")
+    c.drawString(262, y, "Actividad Vulnerable que se pretende realizar: %s" %
+                 D.get("actividad_vulnerable", "Emisión de Tarjetas de Servicio"))
     y -= 16
 
     # ── I. INFORMACIÓN GENERAL ───────────────────────────────────────────────
