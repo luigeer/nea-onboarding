@@ -291,11 +291,17 @@ def para_grit_contrato(exp):
     gm = _get(exp, "grit_monedero", {})
     es_pfae = _get(exp, "tipo_cliente") != "persona_moral"
 
+    poder = rep.get("poder") or {}
     representantes = [{"nombre": rep.get("nombre_registral") or _apellidos_primero(rep.get("nombre")),
-                       "escritura": None, "notario": None, "notaria": None}]
+                       "escritura": poder.get("escritura"),
+                       "notario": poder.get("notario"),
+                       "notaria": poder.get("notaria")}]
     for co in _get(exp, "cofirmantes", []):
-        representantes.append({"nombre": co.get("nombre"), "escritura": None,
-                               "notario": None, "notaria": None})
+        poder = co.get("poder") or {}
+        representantes.append({"nombre": co.get("nombre"),
+                               "escritura": poder.get("escritura"),
+                               "notario": poder.get("notario"),
+                               "notaria": poder.get("notaria")})
 
     entrega = gm.get("domicilio_entrega") or {}
     tiene_entrega = any(entrega.values())
@@ -312,7 +318,7 @@ def para_grit_contrato(exp):
             "no_escritura": con.get("instrumento"), "fecha": _fecha_corta(con.get("fecha")),
             "notario": con.get("fedatario"), "notaria_ubicacion": con.get("notaria"),
             "folio_rpc": con.get("inscripcion_rpc"),
-            "fecha_inscripcion_rpc": _fecha_corta(con.get("fecha")),
+            "fecha_inscripcion_rpc": _fecha_corta(con.get("fecha_inscripcion_rpc")),
         },
         "representantes": representantes,
         "contacto": {

@@ -51,8 +51,14 @@ def completo(**cambios):
     ]
     e["cuentas_bancarias"] = [{"banco": "BBVA", "titular_es_cliente": True,
                                "periodos": ["2026-05", "2026-06", "2026-07"]}]
+    e["constitucion"].update({"inscripcion_rpc": "N-123",
+                               "fecha_inscripcion_rpc": "2020-02-20"})
+    e["grit_monedero"].update({"modelo_negocio": "prepago", "comision": "1.5%",
+                               "cuota": "No aplica", "costo_tarjeta": "$150"})
     e["representante_legal"]["validado"].update({
         "nombre": "CARLOS RUIZ",
+        "poder": {"escritura": "456 de 2021", "notario": "Lic. Ejemplo",
+                  "notaria": "No. 8, CDMX"},
         "facultades": {"titulos_credito": True, "individual": True,
                        "limite_monto": None}})
     e["beneficiarios_controladores"] = [
@@ -225,6 +231,8 @@ def completo_pfae(**cambios):
     e = expediente_vacio()
     e["folio"] = "T-PF-01"
     e["tipo_cliente"] = "pfae"
+    e["grit_monedero"].update({"modelo_negocio": "prepago", "comision": "1.5%",
+                               "cuota": "No aplica", "costo_tarjeta": "$150"})
     e["cliente"]["validado"].update({
         "razon_social": "HERNAN MEZA HERRERA", "rfc": "MEHH820721NBA",
         "situacion_contribuyente": "ACTIVO"})

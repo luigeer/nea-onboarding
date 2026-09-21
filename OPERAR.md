@@ -155,6 +155,15 @@ python nea.py subir LLOSA-01
 ```
 
 `generar` avisa qué campos van a salir en blanco antes de escribir los PDFs.
+Para el Anexo A de Grit Mobility, la generación se detiene hasta que el
+expediente tenga `grit_monedero.modelo_negocio` (`prepago` o `postpago`),
+`comision`, `cuota` y `costo_tarjeta`. Si un cobro no aplica, escribe
+`"No aplica"` expresamente. En personas morales también captura
+`constitucion.inscripcion_rpc` y `constitucion.fecha_inscripcion_rpc` (fecha
+`AAAA-MM-DD`), además de `representante_legal.validado.poder` con `escritura`,
+`notario` y `notaria`. Cada entrada de `cofirmantes` necesita su propio bloque
+`poder` con esos tres campos. La fecha de inscripción se toma del registro
+mercantil, no de la fecha de constitución.
 `subir` deja los documentos de firma en `3 Documentos generados`, los análisis en
 `2 Análisis interno`, y si ya había una versión anterior la manda a
 `0 Superados` en vez de pisarla.
