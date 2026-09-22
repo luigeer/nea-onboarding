@@ -18,6 +18,17 @@ from schema_expediente import _get
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
          "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
+# Sujeto obligado de los documentos PLD/BC de Grit Mobility. Mismo expediente
+# KYC que Nea, dirigido a una entidad distinta: cambia a quién se declara, no
+# qué se declara.
+GRIT_ENTIDAD = {
+    "sujeto_obligado_nombre": "GRIT MOBILITY, S.A. DE C.V.",
+    "actividad_vulnerable": "Emisión de tarjetas prepagadas de gasolina",
+}
+GRIT_RESPONSABLE_CUMPLIMIENTO = {"nombre": "Luis Gómez Montijano",
+                                 "cargo": "Oficial de Cumplimiento",
+                                 "empresa": "Grit Mobility, S.A. de C.V."}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Utilidades de formato
@@ -202,6 +213,17 @@ def para_pld_pf(exp):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 2b/3b. Los mismos PLD, dirigidos a Grit Mobility en vez de a Nea
+# ─────────────────────────────────────────────────────────────────────────────
+def para_grit_pld_pm(exp):
+    return dict(para_pld_pm(exp), **GRIT_ENTIDAD)
+
+
+def para_grit_pld_pf(exp):
+    return dict(para_pld_pf(exp), **GRIT_ENTIDAD)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 4. Formato de identificación del beneficiario controlador
 # ─────────────────────────────────────────────────────────────────────────────
 def para_beneficiario(exp):
@@ -238,6 +260,80 @@ def para_beneficiario(exp):
                              "cargo": rep.get("cargo") or "Representante Legal"},
         "responsable_cumplimiento": _get(exp, "cumplimiento.responsable") or {},
         "procedencia": sorted(set(exp.get("procedencia", {}).values())),
+    }
+
+
+def para_grit_beneficiario(exp):
+    d = para_beneficiario(exp)
+    d["sujeto_obligado"] = "Grit Mobility, S.A. de C.V."
+    d["responsable_cumplimiento"] = GRIT_RESPONSABLE_CUMPLIMIENTO
+    return d
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Contrato de Prestación de Servicios de Grit Mobility
+# ─────────────────────────────────────────────────────────────────────────────
+_MODELO_NEGOCIO_GRIT = {"prepago": "CLIENTE PREPAGO", "postpago": "CLIENTE POST-PAGO"}
+
+
+def _domicilio_grit(dom):
+    dom = dom or {}
+    return {"calle": dom.get("calle"), "num_ext": dom.get("num_ext"),
+            "num_int": dom.get("num_int"), "colonia": dom.get("colonia"),
+            "cp": dom.get("cp"), "municipio": dom.get("municipio"),
+            "estado": dom.get("estado")}
+
+
+def para_grit_contrato(exp):
+    val = _get(exp, "cliente.validado", {})
+    con = _get(exp, "constitucion", {})
+    rep = _get(exp, "representante_legal.validado", {})
+    gm = _get(exp, "grit_monedero", {})
+    es_pfae = _get(exp, "tipo_cliente") != "persona_moral"
+
+    poder = rep.get("poder") or {}
+    representantes = [{"nombre": rep.get("nombre_registral") or _apellidos_primero(rep.get("nombre")),
+                       "escritura": poder.get("escritura"),
+                       "notario": poder.get("notario"),
+                       "notaria": poder.get("notaria")}]
+    for co in _get(exp, "cofirmantes", []):
+        poder = co.get("poder") or {}
+        representantes.append({"nombre": co.get("nombre"),
+                               "escritura": poder.get("escritura"),
+                               "notario": poder.get("notario"),
+                               "notaria": poder.get("notaria")})
+
+    entrega = gm.get("domicilio_entrega") or {}
+    tiene_entrega = any(entrega.values())
+
+    return {
+        "tipo_persona": "pfae" if es_pfae else "moral",
+        "razon_social": val.get("razon_social"),
+        "nombre_comercial": val.get("nombre_comercial") or val.get("razon_social"),
+        "rfc_empresa": val.get("rfc"),
+        "actividad_giro": val.get("actividad_economica"),
+        "nacionalidad": "Mexicana" if es_pfae else None,
+        "modelo_negocio": _MODELO_NEGOCIO_GRIT.get(gm.get("modelo_negocio")),
+        "constitucion": None if es_pfae else {
+            "no_escritura": con.get("instrumento"), "fecha": _fecha_corta(con.get("fecha")),
+            "notario": con.get("fedatario"), "notaria_ubicacion": con.get("notaria"),
+            "folio_rpc": con.get("inscripcion_rpc"),
+            "fecha_inscripcion_rpc": _fecha_corta(con.get("fecha_inscripcion_rpc")),
+        },
+        "representantes": representantes,
+        "contacto": {
+            "nombre": gm.get("contacto", {}).get("nombre") or rep.get("nombre"),
+            "telefono_1": gm.get("contacto", {}).get("telefono_1") or val.get("telefono"),
+            "telefono_2": gm.get("contacto", {}).get("telefono_2"),
+            "correo": gm.get("contacto", {}).get("correo") or val.get("correo"),
+        },
+        "domicilio_fiscal": _domicilio_grit(val.get("domicilio")),
+        "domicilio_entrega": _domicilio_grit(entrega) if tiene_entrega else None,
+        "comision": gm.get("comision"),
+        "cuota": gm.get("cuota"),
+        "costo_tarjeta": gm.get("costo_tarjeta"),
+        "comentarios": gm.get("comentarios"),
+        "fecha_firma_larga": _fecha_larga(_get(exp, "fechas.operacion")),
     }
 
 
@@ -399,6 +495,10 @@ _CRUDOS = {
     "pld_pm": para_pld_pm,
     "pld_pf": para_pld_pf,
     "beneficiario_controlador": para_beneficiario,
+    "grit_pld_pm": para_grit_pld_pm,
+    "grit_pld_pf": para_grit_pld_pf,
+    "grit_beneficiario_controlador": para_grit_beneficiario,
+    "grit_contrato": para_grit_contrato,
     "anexo_razonado": para_anexo_razonado,
     "adenda_os_pm": para_adenda_pm,
     "adenda_os_pf": para_adenda_pf,

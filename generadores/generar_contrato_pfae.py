@@ -54,7 +54,10 @@ CAMPOS_PFAE = {
     # genuinamente en blanco, no hay "$0.00 M.N." que tapar
     "mensualidad":        {"x": 140, "y": 235, "font_size": 9},
     # Firma cliente — un solo renglón: el PFAE firma por su propio derecho
-    "firma_nombre":       {"x": 100, "y": 128, "font_size": 8},
+    # Va en el mismo renglón que la etiqueta "Nombre:" del template (x0=97.5,
+    # x1=128.2, top=671.3-679.2), después de la etiqueta — igual que la firma
+    # de Nea trae "Marcos Siqueiros Ballesteros" en su propio renglón.
+    "firma_nombre":       {"x": 135, "y": 114.5, "font_size": 7.5},
 }
 
 
