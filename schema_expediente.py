@@ -66,7 +66,8 @@ def expediente_vacio():
         "constitucion": {
             "instrumento": None, "libro": None, "fecha": None,
             "fedatario": None, "notaria": None, "plaza": None,
-            "inscripcion_rpc": None, "cud_economia": None,
+            "inscripcion_rpc": None, "fecha_inscripcion_rpc": None,
+            "cud_economia": None,
             "capital_social": None, "acciones": None, "duracion": None,
             "domicilio_social": None,
         },
@@ -83,9 +84,13 @@ def expediente_vacio():
                 "facultades": {"titulos_credito": None, "individual": None,
                                "limite_monto": None},
                 "fundamento": None,
+                # Datos del poder que se imprimen en el Anexo A de Grit.
+                "poder": {"escritura": None, "notario": None, "notaria": None},
             },
         },
-        "cofirmantes": [],                 # solo si el poder es mancomunado
+        "cofirmantes": [],                 # solo si el poder es mancomunado;
+                                           # cada entrada lleva nombre y poder
+                                           # {escritura, notario, notaria}
 
         "beneficiarios_controladores": [],
         "criterio_identificacion": None,   # ver CRITERIOS_BC
@@ -150,6 +155,23 @@ def expediente_vacio():
             "responsable": None,
         },
         "quien_lleno": None,
+
+        # Condiciones comerciales del Contrato de Prestación de Servicios de
+        # Grit Mobility (monedero de combustible). No son datos KYC, salen de
+        # la propuesta comercial ya negociada con el cliente.
+        "grit_monedero": {
+            "modelo_negocio": None,     # "prepago" | "postpago"
+            "comision": None,           # % sobre monto depositado
+            "cuota": None,              # anual o mensual, texto libre
+            "costo_tarjeta": None,
+            "comentarios": None,
+            "contacto": {"nombre": None, "telefono_1": None, "telefono_2": None,
+                        "correo": None},
+            # Si es None/vacío, el generador reutiliza cliente.validado.domicilio.
+            "domicilio_entrega": {"calle": None, "num_ext": None, "num_int": None,
+                                  "colonia": None, "cp": None, "municipio": None,
+                                  "estado": None},
+        },
     }
 
 
@@ -166,6 +188,45 @@ def _get(d, ruta, default=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # Compuertas de la etapa 6
 # ─────────────────────────────────────────────────────────────────────────────
+def compuertas_grit(exp):
+    """Datos del Anexo A que no pueden sustituirse por guiones ni fechas ajenas."""
+    fallas = []
+    gm = _get(exp, "grit_monedero", {}) or {}
+
+    def informado(valor):
+        return valor is not None and (not isinstance(valor, str) or bool(valor.strip()))
+
+    if gm.get("modelo_negocio") not in ("prepago", "postpago"):
+        fallas.append("Grit: falta grit_monedero.modelo_negocio (prepago o postpago).")
+    for campo in ("comision", "cuota", "costo_tarjeta"):
+        valor = gm.get(campo)
+        if not informado(valor):
+            fallas.append("Grit: falta grit_monedero.%s; indica el valor o 'No aplica'."
+                          % campo)
+
+    if _get(exp, "tipo_cliente") == "persona_moral":
+        if not informado(_get(exp, "constitucion.inscripcion_rpc")):
+            fallas.append("Grit: falta constitucion.inscripcion_rpc para el Anexo A.")
+        fecha_rpc = _get(exp, "constitucion.fecha_inscripcion_rpc")
+        try:
+            date.fromisoformat(fecha_rpc)
+        except (TypeError, ValueError):
+            fallas.append("Grit: falta constitucion.fecha_inscripcion_rpc válida "
+                          "(AAAA-MM-DD) para el Anexo A.")
+
+        representantes = [(_get(exp, "representante_legal.validado", {}) or {},
+                           "representante_legal.validado")]
+        representantes.extend((co, "cofirmantes[%d]" % i)
+                              for i, co in enumerate(_get(exp, "cofirmantes", []) or []))
+        for rep, ruta in representantes:
+            poder = rep.get("poder") or {}
+            for campo in ("escritura", "notario", "notaria"):
+                if not informado(poder.get(campo)):
+                    fallas.append("Grit: falta %s.poder.%s para el Anexo A."
+                                  % (ruta, campo))
+    return fallas
+
+
 def compuertas_generacion(exp):
     """Evalúa las condiciones que deben cumplirse antes de generar documentos.
 
@@ -177,6 +238,8 @@ def compuertas_generacion(exp):
         fallas.append("Sin folio asignado (etapa 0).")
     if _get(exp, "tipo_cliente") not in TIPOS_CLIENTE:
         fallas.append("tipo_cliente inválido o ausente: %r" % _get(exp, "tipo_cliente"))
+    else:
+        fallas.extend(compuertas_grit(exp))
 
     # ── línea autorizada, no solicitada ─────────────────────────────────────
     linea = _get(exp, "credito.autorizada.linea")
@@ -318,12 +381,21 @@ def documentos_aplicables(exp):
     tipo = _get(exp, "tipo_cliente")
     docs = ["contrato" if tipo == "persona_moral" else "contrato_pfae"]
 
+    # A partir de septiembre 2026, todo cliente firma también su PLD, su
+    # Beneficiario Controlador (si aplica) y su Contrato de Prestación de
+    # Servicios a nombre de Grit Mobility, S.A. de C.V. — los use o no. Son el
+    # mismo expediente KYC, solo dirigidos a un sujeto obligado distinto, así
+    # que siguen uno a uno a su equivalente de Nea.
+    docs.append("grit_contrato")
     if tipo == "persona_moral":
         docs.append("pld_pm")
+        docs.append("grit_pld_pm")
         if _get(exp, "beneficiarios_controladores"):
             docs.append("beneficiario_controlador")
+            docs.append("grit_beneficiario_controlador")
     else:
         docs.append("pld_pf")
+        docs.append("grit_pld_pf")
 
     if _requiere_anexo_razonado(exp):
         docs.append("anexo_razonado")

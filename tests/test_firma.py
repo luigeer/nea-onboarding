@@ -38,6 +38,10 @@ CUMPL = {"rol": "cumplimiento", "nombre": "Marcos Siqueiros Ballesteros",
          "cargo": "Oficial de Cumplimiento"}
 OS = {"rol": "obligado_solidario", "nombre": "JUAN PEREZ GARCIA",
       "cargo": "Por su propio derecho"}
+GRIT = {"rol": "grit", "nombre": "Luis Gómez Montijano",
+        "cargo": "Representante Legal de Grit Mobility, S.A. de C.V."}
+CUMPL_GRIT = {"rol": "cumplimiento_grit", "nombre": "Luis Gómez Montijano",
+             "cargo": "Oficial de Cumplimiento"}
 
 
 def manifiesto(*claves):
@@ -48,6 +52,10 @@ def manifiesto(*claves):
         "beneficiario_controlador": [CLIENTE, CUMPL],
         "pld_pm": [CLIENTE],
         "domiciliacion": [CLIENTE],
+        "grit_contrato": [CLIENTE, GRIT],
+        "grit_pld_pf": [CLIENTE],
+        "grit_pld_pm": [CLIENTE],
+        "grit_beneficiario_controlador": [CLIENTE, CUMPL_GRIT],
     }
     return {"folio": "T-01", "documentos": [
         {"clave": c, "archivo": "T-01_%s.pdf" % c, "firmantes": firmantes[c]}
@@ -218,6 +226,34 @@ check("activamos sus tarjetas" not in m, "ya no promete activar tarjetas el mism
 check("representante comercial se pondrá en contacto" in m,
       "y anuncia que el representante comercial agenda la capacitacion")
 check("Equipo Nea" in m and "Nea Card" not in m, "firma como Equipo Nea")
+
+# ── los documentos de Grit Mobility ────────────────────────────────────────────
+print("Documentos de Grit Mobility")
+p = firma.plan(manifiesto("grit_contrato", "grit_pld_pf"))
+check(len(p["divisiones"]) == 2,
+      "el contrato de Grit y el PLD de Grit van en divisiones separadas: "
+      "distinto conjunto de firmantes")
+contrato_div = next(d for d in p["divisiones"]
+                    if any(x["clave"] == "grit_contrato" for x in d["documentos"]))
+pld_div = next(d for d in p["divisiones"]
+              if any(x["clave"] == "grit_pld_pf" for x in d["documentos"]))
+check(contrato_div is not pld_div, "confirmando que son divisiones distintas")
+
+todos = [f for d in p["divisiones"] for f in d["firmantes"]]
+luis = [f for f in todos if f["nombre"] == "Luis Gómez Montijano"]
+cliente_grit = [f for f in todos if f["nombre"] == "JUAN PEREZ GARCIA"]
+check(luis and all(f["nivel"] == firma.SIMPLE for f in luis),
+      "Luis firma simple por Grit Mobility: es firma propia, igual que Nea")
+check(cliente_grit and all(f["nivel"] == firma.IDENTIDAD for f in cliente_grit),
+      "el cliente firma con verificación de identidad también en los documentos de Grit")
+
+p2 = firma.plan(manifiesto("grit_pld_pm", "grit_beneficiario_controlador"))
+check(len(p2["divisiones"]) == 1,
+      "el PLD y el Beneficiario Controlador de Grit van juntos, igual que los de Nea")
+cumpl_grit = [f for d in p2["divisiones"] for f in d["firmantes"]
+             if f["nombre"] == "Luis Gómez Montijano"]
+check(cumpl_grit and all(f["nivel"] == firma.SIMPLE for f in cumpl_grit),
+      "Luis firma simple como Responsable de Cumplimiento de Grit Mobility")
 
 # La compuerta va al FINAL del archivo. El bloque de mas arriba quedo a media
 # pagina cuando se agregaron pruebas despues de el, y desde entonces todo lo que

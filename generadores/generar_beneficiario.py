@@ -183,7 +183,7 @@ def _encabezado(D, S):
         Spacer(1, 6),
     ]
     meta = Table([[
-        Paragraph("<b>Sujeto Obligado:</b> %s" % SUJETO_OBLIGADO, S["cuerpo"]),
+        Paragraph("<b>Sujeto Obligado:</b> %s" % D.get("sujeto_obligado", SUJETO_OBLIGADO), S["cuerpo"]),
         Paragraph("<b>Fecha de llenado:</b> %s" % D["fecha_llenado"], S["cuerpo"]),
         Paragraph("<b>No. de folio:</b> %s" % D.get("folio", ""), S["cuerpo"]),
     ]], colWidths=[ANCHO_UTIL * 0.50, ANCHO_UTIL * 0.25, ANCHO_UTIL * 0.25])
@@ -392,6 +392,7 @@ def _seccion_iii(D, S):
 def _seccion_iv(D, S):
     n = len(D.get("beneficiarios", []))
     plural = "las personas" if n != 1 else "la persona"
+    sujeto_obligado = D.get("sujeto_obligado", SUJETO_OBLIGADO)
     decls = [
         ("Que la información asentada en el presente formato es cierta, completa y verificable, "
          "y que fue obtenida de la documentación exhibida por el cliente, en cumplimiento de los "
@@ -400,7 +401,7 @@ def _seccion_iv(D, S):
         ("Que ninguna de %s identificadas en el apartado II tiene el carácter de Persona "
          "Políticamente Expuesta, conforme a la información de que dispone la sociedad." % plural),
         ("Que ha puesto a disposición de cada una de dichas personas el Aviso de Privacidad de "
-         "Grit Payment Solutions, S.A.P.I. de C.V."),
+         "%s." % sujeto_obligado),
     ]
     out = [_barra("IV. DECLARACIONES BAJO PROTESTA DE DECIR VERDAD", S), Spacer(1, 4)]
     out.append(Paragraph("El representante legal del cliente declara bajo protesta de decir "
@@ -415,11 +416,11 @@ def _seccion_iv(D, S):
 
 def _seccion_v(D, S):
     txt = ("Los datos personales recabados en este formato serán tratados de conformidad con el "
-           "Aviso de Privacidad de Grit Payment Solutions, S.A.P.I. de C.V., con domicilio en %s, "
+           "Aviso de Privacidad de %s, con domicilio en %s, "
            "exclusivamente para el cumplimiento de las obligaciones fiscales y en materia de "
            "prevención de lavado de dinero. Son titulares de dichos datos tanto el representante "
            "legal como cada una de las personas identificadas en el apartado II." %
-           DOMICILIO_RESPONSABLE)
+           (D.get("sujeto_obligado", SUJETO_OBLIGADO), DOMICILIO_RESPONSABLE))
     return [_barra("V. AVISO DE PRIVACIDAD", S), Spacer(1, 4),
             Paragraph(txt, S["justo"]), Spacer(1, 10)]
 
@@ -449,7 +450,7 @@ def _seccion_vii(D, S):
     rc = D.get("responsable_cumplimiento", {})
     pares = [("Nombre", rc.get("nombre")),
              ("Cargo", rc.get("cargo", "Responsable de Cumplimiento / Oficial de Cumplimiento PLD")),
-             ("*Empresa", rc.get("empresa", SUJETO_OBLIGADO)),
+             ("*Empresa", rc.get("empresa", D.get("sujeto_obligado", SUJETO_OBLIGADO))),
              ("Fecha de elaboración", rc.get("fecha", D["fecha_llenado"])),
              ("Lugar", rc.get("lugar", "Ciudad de México"))]
     fuentes = D.get("procedencia") or []
@@ -466,16 +467,18 @@ def _seccion_vii(D, S):
 # ─────────────────────────────────────────────────────────────────────────────
 # Documento
 # ─────────────────────────────────────────────────────────────────────────────
-def _pie_pagina(canv, doc):
-    canv.saveState()
-    canv.setStrokeColor(NEA_CORAL)
-    canv.setLineWidth(1.2)
-    canv.line(MARGEN, 12 * mm, letter[0] - MARGEN, 12 * mm)
-    canv.setFont("Helvetica", 6.5)
-    canv.setFillColor(colors.HexColor("#555555"))
-    canv.drawString(MARGEN, 8.5 * mm, SUJETO_OBLIGADO)
-    canv.drawRightString(letter[0] - MARGEN, 8.5 * mm, "Página %d" % canv.getPageNumber())
-    canv.restoreState()
+def _hacer_pie_pagina(sujeto_obligado):
+    def _pie_pagina(canv, doc):
+        canv.saveState()
+        canv.setStrokeColor(NEA_CORAL)
+        canv.setLineWidth(1.2)
+        canv.line(MARGEN, 12 * mm, letter[0] - MARGEN, 12 * mm)
+        canv.setFont("Helvetica", 6.5)
+        canv.setFillColor(colors.HexColor("#555555"))
+        canv.drawString(MARGEN, 8.5 * mm, sujeto_obligado)
+        canv.drawRightString(letter[0] - MARGEN, 8.5 * mm, "Página %d" % canv.getPageNumber())
+        canv.restoreState()
+    return _pie_pagina
 
 
 def _validar(D):
@@ -498,17 +501,19 @@ def generar_beneficiario(datos: dict, output_path: str):
     """Genera el Formato de Identificación del Beneficiario Controlador."""
     D = _validar(dict(datos))
     S = _estilos()
+    sujeto_obligado = D.get("sujeto_obligado", SUJETO_OBLIGADO)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     doc = BaseDocTemplate(output_path, pagesize=letter,
                           leftMargin=MARGEN, rightMargin=MARGEN,
                           topMargin=MARGEN, bottomMargin=18 * mm,
                           title="Formato de Identificación del Beneficiario Controlador",
-                          author=SUJETO_OBLIGADO)
+                          author=sujeto_obligado)
     frame = Frame(MARGEN, 18 * mm, ANCHO_UTIL,
                   letter[1] - MARGEN - 18 * mm, id="cuerpo",
                   leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
-    doc.addPageTemplates([PageTemplate(id="std", frames=[frame], onPage=_pie_pagina)])
+    doc.addPageTemplates([PageTemplate(id="std", frames=[frame],
+                                       onPage=_hacer_pie_pagina(sujeto_obligado))])
 
     story = []
     story += _encabezado(D, S)
