@@ -425,23 +425,35 @@ def page2(c, D):
     y -= 18
 
     sf(c, 7)
-    aviso = [
-        "Grit Payment Solutions, S.A.P.I. de C.V., con domicilio en Calle 3 Picos 65, Polanco V Seccion, Miguel Hidalgo, Ciudad de México, México, CP 11560,",
-        "es responsable de recabar sus datos personales, del uso que se le dé a los mismos y de su protección. Su información personal será utilizada para",
-        "concretar la actividad que se señala al inicio del presente formato, así como para informarle sobre algún cambio o circunstancia que sea de su interés",
-        "y evaluar la calidad del servicio que le brindamos. Lo anterior, en cumplimiento de lo dispuesto por la Ley Federal para la Prevención e Identificación de",
-        "Operaciones con Recursos de Procedencia Ilícita, publicada en el Diario Oficial de la Federación el 17 de octubre de 2012. La información proporcionada",
-        "en dicho formulario, será empleada únicamente para efecto de cumplir con lo que dispone la citada Ley en cuanto a identificación de las personas con",
-        "las que se realicen Actividades consideradas como Vulnerables, así como para la presentación de avisos ante la autoridad competente en los casos",
-        "específicos que la propia Ley señala. Usted tiene derecho de acceder, rectificar y cancelar sus datos personales, así como de oponerse al tratamiento",
-        "de los mismos o revocar el consentimiento que para tal fin nos haya otorgado, a través de los procedimientos que hemos implementado. Para conocer",
-        "dichos procedimientos, los requisitos y plazos, se puede poner en contacto con personal de nuestra empresa en Calle 3 Picos 65, Polanco V Seccion,",
-        "Miguel Hidalgo, Ciudad de México, México, CP 11560, tel: (52) 5521207273. Asimismo, le informamos que sus datos personales pueden ser transferidos",
-        "y tratados dentro y fuera del país, por personas distintas a esta empresa. En ese sentido, su información puede ser compartida con empresas",
-        "pertenecientes al Grupo Empresarial, para fines de calidad en el servicio y otros asuntos relacionados con la operación celebrada. Si usted no manifiesta",
-        "su oposición para que sus datos personales sean transferidos, se entenderá que ha otorgado su consentimiento para ello.",
-    ]
-    for txt in aviso:
+    sujeto_nombre = D.get("sujeto_obligado_nombre", "Grit Payment Solutions, S.A.P.I. de C.V.")
+    sujeto_domicilio = D.get("sujeto_obligado_domicilio",
+        "Calle 3 Picos 65, Polanco V Seccion, Miguel Hidalgo, Ciudad de México, México, CP 11560")
+    texto_aviso = (
+        "%s, con domicilio en %s, es responsable de recabar sus datos personales, del uso "
+        "que se le dé a los mismos y de su protección. Su información personal será utilizada "
+        "para concretar la actividad que se señala al inicio del presente formato, así como "
+        "para informarle sobre algún cambio o circunstancia que sea de su interés y evaluar la "
+        "calidad del servicio que le brindamos. Lo anterior, en cumplimiento de lo dispuesto "
+        "por la Ley Federal para la Prevención e Identificación de Operaciones con Recursos de "
+        "Procedencia Ilícita, publicada en el Diario Oficial de la Federación el 17 de octubre "
+        "de 2012. La información proporcionada en dicho formulario, será empleada únicamente "
+        "para efecto de cumplir con lo que dispone la citada Ley en cuanto a identificación de "
+        "las personas con las que se realicen Actividades consideradas como Vulnerables, así "
+        "como para la presentación de avisos ante la autoridad competente en los casos "
+        "específicos que la propia Ley señala. Usted tiene derecho de acceder, rectificar y "
+        "cancelar sus datos personales, así como de oponerse al tratamiento de los mismos o "
+        "revocar el consentimiento que para tal fin nos haya otorgado, a través de los "
+        "procedimientos que hemos implementado. Para conocer dichos procedimientos, los "
+        "requisitos y plazos, se puede poner en contacto con personal de nuestra empresa en "
+        "%s, tel: (52) 5521207273. Asimismo, le informamos que sus datos personales pueden ser "
+        "transferidos y tratados dentro y fuera del país, por personas distintas a esta "
+        "empresa. En ese sentido, su información puede ser compartida con empresas "
+        "pertenecientes al Grupo Empresarial, para fines de calidad en el servicio y otros "
+        "asuntos relacionados con la operación celebrada. Si usted no manifiesta su oposición "
+        "para que sus datos personales sean transferidos, se entenderá que ha otorgado su "
+        "consentimiento para ello."
+    ) % (sujeto_nombre, sujeto_domicilio, sujeto_domicilio)
+    for txt in _wrap(c, texto_aviso, MR - ML, size=7):
         c.drawString(ML, y, txt)
         y -= 9
     y -= 10
