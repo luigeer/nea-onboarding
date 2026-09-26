@@ -288,7 +288,7 @@ def _doc(exp, tipo, sujeto=None):
             continue
         if d.get("superado_por"):
             continue
-        fid = d.get("drive_file_id")
+        fid = d.get("file_id")
         return {"archivo": d.get("archivo") or NOMBRES_DOC.get(tipo, tipo),
                 "url": "https://drive.google.com/file/d/%s/view" % fid if fid else None,
                 "tipo": tipo}

@@ -127,7 +127,7 @@ EXP = {
     "domiciliacion_clabe": {"clabe": "072180013227570436", "banco": "Banorte"},
     "tracker": {"origen": "Expo Puebla", "ejecutivo": "Fer Caballero"},
     "firma": {"estado": "completada", "fecha": "2026-08-12"},
-    "documentos": [{"tipo": "csf_cliente", "drive_file_id": "abc"}],
+    "documentos": [{"tipo": "csf_cliente", "file_id": "abc"}],
     "observaciones": [],
 }
 
