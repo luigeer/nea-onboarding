@@ -95,6 +95,12 @@ def test_sujeto_obligado_personalizado_para_grit_mobility():
               "con actividad_vulnerable en los datos, debe imprimirse esa actividad")
         check("GRIT PAYMENT SOLUTIONS" not in texto,
               "el encabezado de Grit Mobility no debe dejar restos del texto de Nea")
+        check("Grit Payment Solutions" not in texto,
+              "el aviso de privacidad tampoco debe decir Grit Payment Solutions cuando "
+              "el sujeto obligado es Grit Mobility")
+        check(texto.count("GRIT MOBILITY, S.A. DE C.V.") >= 2,
+              "el nombre de Grit Mobility debe aparecer tanto en el encabezado como en "
+              "el aviso de privacidad")
 
 
 DATOS_BASE_PF = {
@@ -150,6 +156,12 @@ def test_pld_pf_sujeto_obligado_personalizado_para_grit_mobility():
               "PF: con actividad_vulnerable en los datos, debe imprimirse esa actividad")
         check("GRIT PAYMENT SOLUTIONS" not in texto,
               "PF: el encabezado de Grit Mobility no debe dejar restos del texto de Nea")
+        check("Grit Payment Solutions" not in texto,
+              "PF: el aviso de privacidad tampoco debe decir Grit Payment Solutions cuando "
+              "el sujeto obligado es Grit Mobility")
+        check(texto.count("GRIT MOBILITY, S.A. DE C.V.") >= 2,
+              "PF: el nombre de Grit Mobility debe aparecer tanto en el encabezado como en "
+              "el aviso de privacidad")
 
 
 def main():
