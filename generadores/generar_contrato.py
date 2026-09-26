@@ -31,9 +31,11 @@ from reportlab.lib.pagesizes import letter
 # MAPA DE CAMPOS — todas las coordenadas pre-calculadas y verificadas
 # ─────────────────────────────────────────────────────────────────────────────
 CAMPOS = {
-    # Datos del cliente
-    "razon_social":       {"x": 67,  "y": 580, "font_size": 9},
-    "nombre_comercial":   {"x": 354, "y": 580, "font_size": 9},
+    # Datos del cliente. max_ancho evita que un nombre largo se encime con la
+    # siguiente columna de la plantilla -- no hay salto de línea, así que sin
+    # esto el texto simplemente sigue de largo por encima de lo que sigue.
+    "razon_social":       {"x": 67,  "y": 580, "font_size": 9, "max_ancho": 279},
+    "nombre_comercial":   {"x": 354, "y": 580, "font_size": 9, "max_ancho": 190},
     "rep_legal":          {"x": 67,  "y": 544, "font_size": 9},
     "rfc_empresa":        {"x": 420, "y": 544, "font_size": 9},
     # Línea de crédito — white_box tapa el "$0.00 M.N." del PDF vacío
@@ -45,10 +47,28 @@ CAMPOS = {
     # Mensualidad — white_box tapa el "$0.00 M.N." del PDF vacío
     "mensualidad":        {"x": 130, "y": 241, "font_size": 9,
                            "white_box": {"x": 128, "y": 235, "w": 205, "h": 18}},
-    # Firma cliente
-    "firma_razon_social": {"x": 152, "y": 141, "font_size": 8},
-    "firma_rep_legal":    {"x": 152, "y": 131, "font_size": 8},
+    # Firma cliente. La firma de Nea (Marcos Siqueiros Ballesteros) está
+    # impresa en la plantilla a partir de x=324; sin max_ancho, una razón
+    # social larga se le encima.
+    # "Nombre:" es la persona que firma; "Apoderado de:" es la sociedad. Las
+    # y alinean cada dato con su etiqueta de la plantilla (top 651.4 y 661.4).
+    "firma_rep_legal":    {"x": 152, "y": 134.3, "font_size": 8, "max_ancho": 165,
+                           "minimo": 5.0},
+    "firma_razon_social": {"x": 152, "y": 124.3, "font_size": 8, "max_ancho": 165,
+                           "minimo": 5.0},
 }
+
+
+def _tamano_ajustado(c, texto, font, tamano, max_ancho, minimo=6.0):
+    """Reduce el tamaño de fuente hasta que el texto quepa en max_ancho.
+
+    Sin salto de línea posible en un campo de una sola línea, la alternativa a
+    encoger la fuente es dejar que el texto se encime con lo que sigue.
+    """
+    s = tamano
+    while s > minimo and c.stringWidth(texto, font, s) > max_ancho:
+        s -= 0.25
+    return s
 
 
 def fill_contrato(datos: dict, output_path: str, input_pdf_path: str = None):
@@ -75,7 +95,12 @@ def fill_contrato(datos: dict, output_path: str, input_pdf_path: str = None):
             continue
 
         c.setFillColorRGB(0, 0, 0)
-        c.setFont("Helvetica-Bold" if cfg.get("bold") else "Helvetica", cfg["font_size"])
+        font = "Helvetica-Bold" if cfg.get("bold") else "Helvetica"
+        tamano = cfg["font_size"]
+        if cfg.get("max_ancho"):
+            tamano = _tamano_ajustado(c, str(valor), font, tamano, cfg["max_ancho"],
+                                      minimo=cfg.get("minimo", 6.0))
+        c.setFont(font, tamano)
         c.drawString(cfg["x"], cfg["y"], str(valor))
 
     c.save()
