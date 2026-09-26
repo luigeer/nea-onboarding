@@ -164,11 +164,38 @@ def test_pld_pf_sujeto_obligado_personalizado_para_grit_mobility():
               "el aviso de privacidad")
 
 
+def _casilla_marcada(path, etiqueta):
+    """¿Hay una X dentro de la casilla que sigue a `etiqueta` en su mismo renglón?"""
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            palabras = page.extract_words()
+            for w in palabras:
+                if w["text"] != etiqueta:
+                    continue
+                for ch in page.chars:
+                    if (ch["text"] == "X" and abs(ch["top"] - w["top"]) < 4
+                            and w["x1"] < ch["x0"] < w["x1"] + 20):
+                        return True
+    return False
+
+
+def test_pld_pm_marca_la_ine_con_la_clave_que_da_el_adaptador():
+    import adaptadores
+    datos = dict(DATOS_BASE)
+    datos["tipo_id_oficial"] = adaptadores._id_oficial("INE - Credencial para votar")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "pld_ine.pdf")
+        generar_pld(datos, out)
+        check(_casilla_marcada(out, "IFE"),
+              "PM: una INE capturada en el expediente marca la casilla IFE del PLD")
+
+
 def main():
     test_sujeto_obligado_por_defecto_es_nea()
     test_sujeto_obligado_personalizado_para_grit_mobility()
     test_pld_pf_sujeto_obligado_por_defecto_es_nea()
     test_pld_pf_sujeto_obligado_personalizado_para_grit_mobility()
+    test_pld_pm_marca_la_ine_con_la_clave_que_da_el_adaptador()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))

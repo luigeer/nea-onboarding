@@ -291,8 +291,8 @@ def page1(c, D):
     c.drawString(ML, y, "v)  Identificación oficial vigente (con fotografía) del represente legal o apoderado")
     y -= 14
 
-    tipo_id = D.get("tipo_id_oficial", "ine").lower()
-    c.drawString(50,  y, "IFE");                   checkbox(c, 64,  y, checked=(tipo_id == "ine"))
+    tipo_id = D.get("tipo_id_oficial", "ife").lower()
+    c.drawString(50,  y, "IFE");                   checkbox(c, 64,  y, checked=(tipo_id in ("ife", "ine")))
     c.drawString(82,  y, "PASAPORTE");              checkbox(c, 130, y, checked=(tipo_id == "pasaporte"))
     c.drawString(148, y, "CEDULA PROFESIONAL");     checkbox(c, 235, y, checked=(tipo_id == "cedula"))
     c.drawString(253, y, "LICENCIA");               checkbox(c, 290, y, checked=(tipo_id == "licencia"))
