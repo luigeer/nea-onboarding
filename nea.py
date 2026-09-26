@@ -452,11 +452,24 @@ def cmd_generar(folio):
     return r.returncode
 
 
+def _paquete_verificado(dir_paquete, folio):
+    import verificador
+    listo, motivos = verificador.paquete_listo(dir_paquete, folio)
+    if not listo:
+        titulo("El paquete de %s no pasó la verificación" % folio)
+        for m in motivos:
+            print("  · %s" % m)
+        print("\n  Corrige y vuelve a generar: python nea.py generar %s" % folio)
+    return listo
+
+
 def cmd_subir(folio):
     destino = os.path.join(RAIZ, "expedientes", "%s_paquete" % folio)
     if not os.path.isdir(destino):
         print("Todavía no hay paquete generado para %s." % folio)
         print("Primero: python nea.py generar %s" % folio)
+        return 1
+    if not _paquete_verificado(destino, folio):
         return 1
     import drive_cliente
     titulo("Subiendo a Drive")
@@ -1216,6 +1229,8 @@ def cmd_firma(folio, guardar_archivo=False, subir_a_weetrust=False,
     ruta_man = os.path.join(dir_paq, "%s_manifiesto.json" % folio)
     if not os.path.exists(ruta_man):
         print("Falta el paquete. Primero:  python nea.py generar %s" % folio)
+        return 1
+    if not _paquete_verificado(dir_paq, folio):
         return 1
     with open(ruta_man, encoding="utf-8") as fh:
         manifiesto = json.load(fh)
