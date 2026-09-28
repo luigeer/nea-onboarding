@@ -35,6 +35,7 @@ TIPOS_CLIENTE = ("persona_moral", "pfae", "persona_fisica")
 TIPOS_OBLIGADO = ("persona_moral", "persona_fisica")
 CRITERIOS_BC = ("participacion", "control_efectivo")
 CONCLUSIONES_ANEXO = ("control_efectivo", "no_identificado", "parcial")
+MOTIVOS_EXCEPCION_RIESGO = ("socio_comercial", "respaldo_obligado_solidario")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -107,6 +108,9 @@ def expediente_vacio():
             "autorizada": {"linea": None, "plazo": None, "mensualidad": None,
                            "fecha": None, "autorizada_por": None,
                            "linea_propuesta_modelo": None},
+            # Línea autorizada sin pasar por el modelo de riesgo. Ver
+            # `_revisar_excepcion_riesgo`. None = no hay excepción.
+            "excepcion_riesgo": None,  # {motivo, justificacion, autorizada_por, fecha}
         },
         "riesgo_pld": {"grado": None, "factores": [], "fecha_evaluacion": None,
                        "evaluado_por": None, "proxima_actualizacion": None},
@@ -155,6 +159,9 @@ def expediente_vacio():
             "responsable": None,
         },
         "quien_lleno": None,
+
+        # El cliente firma solo con Grit Payment. Ver `documentos_aplicables`.
+        "sin_grit_mobility": None,         # {justificacion, decidido_por, fecha}
 
         # Condiciones comerciales del Contrato de Prestación de Servicios de
         # Grit Mobility (monedero de combustible). No son datos KYC, salen de
@@ -227,6 +234,52 @@ def compuertas_grit(exp):
     return fallas
 
 
+def _informado(valor):
+    return valor is not None and (not isinstance(valor, str) or bool(valor.strip()))
+
+
+def _revisar_excepcion_riesgo(exp):
+    """(vigente, fallas) de la excepción al modelo de riesgo.
+
+    Hay líneas que se autorizan sin modelo: un socio comercial al que por
+    decisión de dirección no se le pide información financiera, o un cliente
+    respaldado por un obligado solidario que ya tiene autorizada una línea
+    mayor. La excepción exime de los estados de cuenta y de nada más —el KYC,
+    la línea autorizada y las facultades del representante se siguen
+    exigiendo—, y solo cuenta si dice por qué y quién respondió por ella. Una
+    excepción a medio llenar no exime: se reporta.
+    """
+    exc = _get(exp, "credito.excepcion_riesgo")
+    if not exc:
+        return False, []
+    fallas = []
+    if exc.get("motivo") not in MOTIVOS_EXCEPCION_RIESGO:
+        fallas.append("Excepción de riesgo con motivo inválido: %r (válidos: %s)."
+                      % (exc.get("motivo"), ", ".join(MOTIVOS_EXCEPCION_RIESGO)))
+    if not _informado(exc.get("justificacion")):
+        fallas.append("Excepción de riesgo sin justificación escrita.")
+    if not _informado(exc.get("autorizada_por")):
+        fallas.append("Excepción de riesgo sin nombre de quién la autoriza.")
+    if (exc.get("motivo") == "respaldo_obligado_solidario"
+            and not _get(exp, "flags.obligado_solidario")):
+        fallas.append("Excepción por respaldo de obligado solidario, pero el "
+                      "expediente no tiene obligado solidario.")
+    return not fallas, fallas
+
+
+def _revisar_sin_grit_mobility(exp):
+    """(vigente, fallas) de la exclusión de los documentos de Grit Mobility."""
+    sg = _get(exp, "sin_grit_mobility")
+    if not sg:
+        return False, []
+    fallas = []
+    if not _informado(sg.get("justificacion")):
+        fallas.append("Exclusión de Grit Mobility sin justificación escrita.")
+    if not _informado(sg.get("decidido_por")):
+        fallas.append("Exclusión de Grit Mobility sin nombre de quién la decidió.")
+    return not fallas, fallas
+
+
 def compuertas_generacion(exp):
     """Evalúa las condiciones que deben cumplirse antes de generar documentos.
 
@@ -239,7 +292,13 @@ def compuertas_generacion(exp):
     if _get(exp, "tipo_cliente") not in TIPOS_CLIENTE:
         fallas.append("tipo_cliente inválido o ausente: %r" % _get(exp, "tipo_cliente"))
     else:
-        fallas.extend(compuertas_grit(exp))
+        sin_grit, fallas_sg = _revisar_sin_grit_mobility(exp)
+        fallas.extend(fallas_sg)
+        if not sin_grit:
+            fallas.extend(compuertas_grit(exp))
+
+    excepcion, fallas_exc = _revisar_excepcion_riesgo(exp)
+    fallas.extend(fallas_exc)
 
     # ── línea autorizada, no solicitada ─────────────────────────────────────
     linea = _get(exp, "credito.autorizada.linea")
@@ -288,8 +347,8 @@ def compuertas_generacion(exp):
                               ", ".join(faltantes))
 
     # ── estados de cuenta contra la línea autorizada ────────────────────────
-    if linea:
-        requeridos = (ESTADOS_CUENTA_AMPLIADO if float(linea) > UMBRAL_ESTADOS_CUENTA
+    if linea and not excepcion:
+        requeridos =(ESTADOS_CUENTA_AMPLIADO if float(linea) > UMBRAL_ESTADOS_CUENTA
                       else ESTADOS_CUENTA_BASE)
         cuentas = _get(exp, "cuentas_bancarias", [])
         principal = next((c for c in cuentas if c.get("titular_es_cliente")), None)
@@ -386,16 +445,26 @@ def documentos_aplicables(exp):
     # Servicios a nombre de Grit Mobility, S.A. de C.V. — los use o no. Son el
     # mismo expediente KYC, solo dirigidos a un sujeto obligado distinto, así
     # que siguen uno a uno a su equivalente de Nea.
-    docs.append("grit_contrato")
+    #
+    # La excepción es `sin_grit_mobility`: un cliente que solo firma con Grit
+    # Payment. Cuenta solo si dice por qué y quién lo decidió; a medio llenar
+    # los documentos siguen saliendo y la compuerta lo reporta.
+    grit, _ = _revisar_sin_grit_mobility(exp)
+    grit = not grit
+    if grit:
+        docs.append("grit_contrato")
     if tipo == "persona_moral":
         docs.append("pld_pm")
-        docs.append("grit_pld_pm")
+        if grit:
+            docs.append("grit_pld_pm")
         if _get(exp, "beneficiarios_controladores"):
             docs.append("beneficiario_controlador")
-            docs.append("grit_beneficiario_controlador")
+            if grit:
+                docs.append("grit_beneficiario_controlador")
     else:
         docs.append("pld_pf")
-        docs.append("grit_pld_pf")
+        if grit:
+            docs.append("grit_pld_pf")
 
     if _requiere_anexo_razonado(exp):
         docs.append("anexo_razonado")
