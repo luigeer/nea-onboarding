@@ -28,6 +28,10 @@ GRIT_ENTIDAD = {
 GRIT_RESPONSABLE_CUMPLIMIENTO = {"nombre": "Luis Gómez Montijano",
                                  "cargo": "Oficial de Cumplimiento",
                                  "empresa": "Grit Mobility, S.A. de C.V."}
+# Debe coincidir con generar_paquete.NEA_CUMPLIMIENTO, que es quien firma.
+NEA_RESPONSABLE_CUMPLIMIENTO = {"nombre": "Marcos Siqueiros Ballesteros",
+                                "cargo": "Oficial de Cumplimiento",
+                                "empresa": "Grit Payment Solutions, S.A.P.I. de C.V."}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +234,7 @@ def para_beneficiario(exp):
     val = _get(exp, "cliente.validado", {})
     con = _get(exp, "constitucion", {})
     rep = _get(exp, "representante_legal.validado", {})
+    resp = _get(exp, "cumplimiento.responsable") or {}
     return {
         "folio": exp.get("folio"),
         "fecha_llenado": _fecha_corta(_get(exp, "fechas.operacion")),
@@ -258,7 +263,7 @@ def para_beneficiario(exp):
         "organo_administracion": _get(exp, "organo_administracion", {}),
         "firmante_cliente": {"nombre": rep.get("nombre"),
                              "cargo": rep.get("cargo") or "Representante Legal"},
-        "responsable_cumplimiento": _get(exp, "cumplimiento.responsable") or {},
+        "responsable_cumplimiento": resp if resp.get("nombre") else NEA_RESPONSABLE_CUMPLIMIENTO,
         "procedencia": sorted(set(exp.get("procedencia", {}).values())),
     }
 

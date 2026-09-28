@@ -95,6 +95,12 @@ def test_sujeto_obligado_personalizado_para_grit_mobility():
               "con actividad_vulnerable en los datos, debe imprimirse esa actividad")
         check("GRIT PAYMENT SOLUTIONS" not in texto,
               "el encabezado de Grit Mobility no debe dejar restos del texto de Nea")
+        check("Grit Payment Solutions" not in texto,
+              "el aviso de privacidad tampoco debe decir Grit Payment Solutions cuando "
+              "el sujeto obligado es Grit Mobility")
+        check(texto.count("GRIT MOBILITY, S.A. DE C.V.") >= 2,
+              "el nombre de Grit Mobility debe aparecer tanto en el encabezado como en "
+              "el aviso de privacidad")
 
 
 DATOS_BASE_PF = {
@@ -150,6 +156,38 @@ def test_pld_pf_sujeto_obligado_personalizado_para_grit_mobility():
               "PF: con actividad_vulnerable en los datos, debe imprimirse esa actividad")
         check("GRIT PAYMENT SOLUTIONS" not in texto,
               "PF: el encabezado de Grit Mobility no debe dejar restos del texto de Nea")
+        check("Grit Payment Solutions" not in texto,
+              "PF: el aviso de privacidad tampoco debe decir Grit Payment Solutions cuando "
+              "el sujeto obligado es Grit Mobility")
+        check(texto.count("GRIT MOBILITY, S.A. DE C.V.") >= 2,
+              "PF: el nombre de Grit Mobility debe aparecer tanto en el encabezado como en "
+              "el aviso de privacidad")
+
+
+def _casilla_marcada(path, etiqueta):
+    """¿Hay una X dentro de la casilla que sigue a `etiqueta` en su mismo renglón?"""
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            palabras = page.extract_words()
+            for w in palabras:
+                if w["text"] != etiqueta:
+                    continue
+                for ch in page.chars:
+                    if (ch["text"] == "X" and abs(ch["top"] - w["top"]) < 4
+                            and w["x1"] < ch["x0"] < w["x1"] + 20):
+                        return True
+    return False
+
+
+def test_pld_pm_marca_la_ine_con_la_clave_que_da_el_adaptador():
+    import adaptadores
+    datos = dict(DATOS_BASE)
+    datos["tipo_id_oficial"] = adaptadores._id_oficial("INE - Credencial para votar")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "pld_ine.pdf")
+        generar_pld(datos, out)
+        check(_casilla_marcada(out, "IFE"),
+              "PM: una INE capturada en el expediente marca la casilla IFE del PLD")
 
 
 def main():
@@ -157,6 +195,7 @@ def main():
     test_sujeto_obligado_personalizado_para_grit_mobility()
     test_pld_pf_sujeto_obligado_por_defecto_es_nea()
     test_pld_pf_sujeto_obligado_personalizado_para_grit_mobility()
+    test_pld_pm_marca_la_ine_con_la_clave_que_da_el_adaptador()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))

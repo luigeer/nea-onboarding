@@ -102,11 +102,24 @@ def test_grit_beneficiario_usa_el_mismo_cliente_con_responsable_de_grit():
           "el Responsable de Cumplimiento de Grit Mobility es Luis Gómez Montijano")
 
 
+def test_beneficiario_de_nea_sin_excepcion_usa_al_oficial_de_grit_payment():
+    exp = persona_moral()
+    exp["cumplimiento"]["responsable"] = None
+    nea = ADAPTADORES["beneficiario_controlador"](exp)
+    check(nea["responsable_cumplimiento"].get("nombre") == "Marcos Siqueiros Ballesteros",
+          "sin excepción capturada, el Formato BC de Nea lleva al Oficial de "
+          "Cumplimiento de Grit Payment, no queda en blanco")
+    grit = ADAPTADORES["grit_beneficiario_controlador"](exp)
+    check(grit["responsable_cumplimiento"]["nombre"] == "Luis Gómez Montijano",
+          "y el de Grit Mobility sigue llevando a Luis")
+
+
 def main():
     test_grit_pld_pm_usa_el_mismo_cliente_con_sujeto_obligado_de_grit()
     test_grit_pld_pf_usa_el_mismo_cliente_con_sujeto_obligado_de_grit()
     test_grit_contrato_traduce_cliente_y_condiciones_comerciales()
     test_grit_beneficiario_usa_el_mismo_cliente_con_responsable_de_grit()
+    test_beneficiario_de_nea_sin_excepcion_usa_al_oficial_de_grit_payment()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))

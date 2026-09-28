@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen
 
 from schema_expediente import (compuertas_generacion, documentos_aplicables, _get)
 from adaptadores import ADAPTADORES
+import verificador
 
 from generar_contrato import fill_contrato
 from generar_contrato_pfae import fill_contrato_pfae
@@ -250,6 +251,9 @@ def generar_paquete(exp, dir_salida, solo_compuertas=False):
             if d["clave"] in claves_g:
                 d["grupo_firma"] = i
 
+    hallazgos = verificador.verificar(exp, dir_salida, manifiesto)
+    manifiesto["verificacion"] = verificador.resultado(hallazgos)
+
     ruta_man = os.path.join(dir_salida, "%s_manifiesto.json" % folio)
     with open(ruta_man, "w", encoding="utf-8") as fh:
         json.dump(manifiesto, fh, ensure_ascii=False, indent=2)
@@ -262,6 +266,14 @@ def generar_paquete(exp, dir_salida, solo_compuertas=False):
         for c in g["documentos"]:
             print("      %s_%s.pdf" % (folio, CATALOGO[c][0]))
     print("\nManifiesto: %s" % ruta_man)
+
+    print("\nVerificación de los documentos generados")
+    if not hallazgos:
+        print("  Sin hallazgos.")
+    else:
+        for x in hallazgos:
+            print("  ✗ %s [%s]: %s" % (x["archivo"], x["regla"], x["detalle"]))
+        print("  No se puede subir a Drive ni mandar a firma hasta corregirlos.")
     return manifiesto
 
 

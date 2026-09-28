@@ -350,8 +350,10 @@ def page2(c, D):
     black_bar(c, y, "AVISO DE PRIVACIDAD – PROTECCIÓN DE DATOS PERSONALES")
     y -= 18
     sf(c, 7)
+    sujeto_nombre = D.get("sujeto_obligado_nombre", "Grit Payment Solutions, S.A.P.I. de C.V.")
+    sujeto_domicilio = D.get("sujeto_obligado_domicilio", DOMICILIO_RESPONSABLE)
     aviso = (
-        "Grit Payment Solutions, S.A.P.I. de C.V., con domicilio en %s, es responsable de recabar "
+        "%s, con domicilio en %s, es responsable de recabar "
         "sus datos personales, del uso que se le dé a los mismos y de su protección. Su información "
         "personal será utilizada para concretar la actividad que se señala al inicio del presente "
         "formato, así como para informarle sobre algún cambio o circunstancia que sea de su interés "
@@ -367,7 +369,7 @@ def page2(c, D):
         "que para tal fin nos haya otorgado, a través de los procedimientos que hemos implementado. "
         "Para conocer dichos procedimientos, los requisitos y plazos, se puede poner en contacto "
         "con personal de nuestra empresa en %s, tel: %s." % (
-            DOMICILIO_RESPONSABLE, DOMICILIO_RESPONSABLE, TEL_RESPONSABLE))
+            sujeto_nombre, sujeto_domicilio, sujeto_domicilio, TEL_RESPONSABLE))
     for ln in wrap(c, aviso, MR - ML, size=7):
         c.drawString(ML, y, ln)
         y -= 8.5
