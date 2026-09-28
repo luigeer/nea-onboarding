@@ -139,4 +139,23 @@ check("grit_contrato" in documentos_aplicables(grit_incompleto),
 check(hay(compuertas_generacion(grit_incompleto), "Grit Mobility"),
       "una exclusión incompleta se reporta como falla")
 
+# ── El validador cuenta lo mismo que la compuerta ────────────────────────────
+# Si la compuerta ya no exige estados de cuenta pero el validador los sigue
+# pidiendo, la solicitud que ventas le reenvía al cliente pide un papel que
+# nadie va a usar. Dos pantallas que se contradicen no se cree ninguna.
+import validador
+
+
+def pide_estados(exp):
+    return any(h["asunto"] == "Faltan estados de cuenta"
+               for h in validador.revisar(exp).hallazgos)
+
+
+check(pide_estados(moral_lista()),
+      "sin excepción, el validador pide estados de cuenta")
+check(not pide_estados(socio),
+      "con excepción vigente, el validador no pide estados de cuenta")
+check(pide_estados(sin_nombre),
+      "con excepción incompleta, el validador los sigue pidiendo")
+
 print("\nTodas las pruebas de excepciones pasaron.")

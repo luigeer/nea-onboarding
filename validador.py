@@ -29,7 +29,8 @@ cumplimiento.
 
 from datetime import date, timedelta
 
-from schema_expediente import (_get, UMBRAL_ESTADOS_CUENTA, ESTADOS_CUENTA_BASE,
+from schema_expediente import excepcion_riesgo_vigente
+from schema_expediente import (_get,UMBRAL_ESTADOS_CUENTA, ESTADOS_CUENTA_BASE,
                                ESTADOS_CUENTA_AMPLIADO)
 
 ALTA, INTERMEDIA, BAJA = "alta", "intermedia", "baja"
@@ -233,8 +234,10 @@ def _completitud(exp, r, hoy):
 
     # Un solo renglón: pedir "faltan N" y además "el más reciente" son la misma
     # petición vista de dos formas, y al cliente le llegan como dos pendientes.
-    if periodos < requeridos or faltan_meses:
-        MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+    # Con una excepción de riesgo vigente la compuerta no exige estados de
+    # cuenta; pedirlos aquí mandaría al cliente por un papel que nadie usa.
+    if (periodos < requeridos or faltan_meses) and not excepcion_riesgo_vigente(exp):
+        MESES =["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
                  "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
         def bonito(p):
             a, m = p.split("-")

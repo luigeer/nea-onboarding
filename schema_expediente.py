@@ -267,6 +267,11 @@ def _revisar_excepcion_riesgo(exp):
     return not fallas, fallas
 
 
+def excepcion_riesgo_vigente(exp):
+    """True si hay una excepción al modelo de riesgo completa y válida."""
+    return _revisar_excepcion_riesgo(exp)[0]
+
+
 def _revisar_sin_grit_mobility(exp):
     """(vigente, fallas) de la exclusión de los documentos de Grit Mobility."""
     sg = _get(exp, "sin_grit_mobility")
