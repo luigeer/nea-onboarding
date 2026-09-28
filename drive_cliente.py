@@ -221,21 +221,38 @@ def descargar(svc, file_id, destino):
     return destino
 
 
+class PaqueteNoVerificado(Exception):
+    """El paquete no tiene verificación, o la tiene con hallazgos."""
+
+    def __init__(self, motivos):
+        super().__init__("; ".join(motivos))
+        self.motivos = motivos
+
+
 def subir_paquete(svc, folio, dir_local):
     """Sube los PDFs y el manifiesto de la etapa 6 a '3 Documentos generados'.
+
+    Solo sube un paquete verificado, y de él solo lo que lista el manifiesto:
+    un PDF que quedó en la carpeta de una generación anterior (o el
+    _PARA_FIRMA.pdf) no pasó por el verificador.
 
     Si ya existe un archivo con el mismo nombre, el anterior se mueve a
     '0 Superados': mismo principio que con los documentos del cliente.
     """
+    import verificador
+    listo, motivos = verificador.paquete_listo(dir_local, folio)
+    if not listo:
+        raise PaqueteNoVerificado(motivos)
+    nombre_man = "%s_manifiesto.json" % folio
+    with open(os.path.join(dir_local, nombre_man), encoding="utf-8") as fh:
+        manifiesto = json.load(fh)
+    archivos = sorted([d["archivo"] for d in manifiesto.get("documentos", [])]
+                      + [nombre_man])
+
     from googleapiclient.http import MediaFileUpload
     exp = carpeta_expediente(svc, folio)
     ids = asegurar_estructura(svc, exp["id"])
     existentes = {f["name"]: f for f in hijos(svc, ids["3"])}
-
-    archivos = sorted(a for a in os.listdir(dir_local)
-                      if a.lower().endswith((".pdf", ".json")))
-    if not archivos:
-        raise FileNotFoundError("No hay PDFs ni manifiesto en %s" % dir_local)
 
     subidos = []
     for nombre in archivos:
@@ -319,7 +336,14 @@ def main(argv):
             print("Bajado: %s" % f["name"])
 
     elif orden == "subir" and len(args) == 2:
-        for f in subir_paquete(svc, args[0], args[1]):
+        try:
+            subidos = subir_paquete(svc, args[0], args[1])
+        except PaqueteNoVerificado as e:
+            print("El paquete de %s no pasó la verificación:" % args[0])
+            for m in e.motivos:
+                print("  · %s" % m)
+            return 1
+        for f in subidos:
             print("Subido: %s" % f["name"])
 
     elif orden == "firmados" and len(args) >= 2:
