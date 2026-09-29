@@ -42,7 +42,7 @@ IDENTIDAD = "identidad_y_background"
 # El orden dentro del PDF unido. Importa porque las divisiones son rangos de
 # página contiguos: si el orden cambia, los rangos dejan de cerrar.
 ORDEN = ["contrato", "contrato_pfae", "adenda_os_pm", "adenda_os_pf", "beneficiario_controlador",
-         "pld_pm", "pld_pf", "anexo_razonado", "domiciliacion",
+         "pld_pm", "pld_pf", "anexo_razonado", "domiciliacion", "autorizacion_buro",
          "grit_contrato", "grit_pld_pm", "grit_pld_pf", "grit_beneficiario_controlador"]
 
 ETIQUETAS = {
@@ -55,6 +55,7 @@ ETIQUETAS = {
     "pld_pf": "Expediente de Identificación PLD",
     "anexo_razonado": "Anexo de Análisis Razonado",
     "domiciliacion": "Autorización de Domiciliación",
+    "autorizacion_buro": "Autorización de Consulta de Buró",
     "grit_contrato": "Contrato de Prestación de Servicios (Grit Mobility)",
     "grit_pld_pm": "Expediente de Identificación PLD (Grit Mobility)",
     "grit_pld_pf": "Expediente de Identificación PLD (Grit Mobility)",

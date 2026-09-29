@@ -466,6 +466,42 @@ def para_domiciliacion(exp):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 10. Autorización de consulta de buró
+# ─────────────────────────────────────────────────────────────────────────────
+_TIPO_BURO = {"persona_moral": "pm", "pfae": "pfae", "persona_fisica": "pf"}
+
+
+def para_autorizacion_buro(exp):
+    """La autorización para solicitar reportes de crédito.
+
+    En persona moral el solicitante es la sociedad y firma su representante; en
+    persona física o PFAE el solicitante es la propia persona y no hay renglón
+    de representante. El RFC es el del solicitante.
+    """
+    tipo = _get(exp, "tipo_cliente")
+    val = _get(exp, "cliente.validado", {})
+    dom = val.get("domicilio", {}) or {}
+    rep = _get(exp, "representante_legal.validado", {})
+    moral = tipo == "persona_moral"
+    return {
+        "tipo_persona": _TIPO_BURO.get(tipo, "pm"),
+        "solicitante": (val.get("razon_social") if moral else
+                        (rep.get("nombre") or val.get("razon_social") or "").upper()),
+        "rep_legal": (rep.get("nombre") or "").upper() if moral else "",
+        "rfc": val.get("rfc") if moral else (rep.get("rfc") or val.get("rfc")),
+        "domicilio": " ".join(x for x in (dom.get("calle"), dom.get("num_ext")) if x),
+        "colonia": dom.get("colonia"),
+        "municipio": dom.get("municipio"),
+        "estado": dom.get("estado"),
+        "cp": dom.get("cp"),
+        "telefono": val.get("telefono"),
+        "correo": (_get(exp, "representante_legal.propuesto.correo")
+                   or val.get("correo")),
+        "fecha": _fecha_larga(_get(exp, "fechas.operacion")),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helpers de documentos
 # ─────────────────────────────────────────────────────────────────────────────
 def _doc_attr(exp, tipo, attr, default=None):
@@ -508,6 +544,7 @@ _CRUDOS = {
     "adenda_os_pm": para_adenda_pm,
     "adenda_os_pf": para_adenda_pf,
     "domiciliacion": para_domiciliacion,
+    "autorizacion_buro": para_autorizacion_buro,
 }
 
 

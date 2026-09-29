@@ -198,6 +198,10 @@ def _completitud(exp, r, hoy):
     lista = OBLIGATORIOS_PM if tipo == "persona_moral" else OBLIGATORIOS_PF
 
     for clave, nombre, bloquea in lista:
+        # Con la autorización de buró dentro del paquete de firma, al cliente
+        # ya no le toca mandarla aparte: pedírsela sería pedirla dos veces.
+        if clave == "autorizacion_buro" and _get(exp, "flags.buro_en_paquete"):
+            continue
         if clave not in presentes:
             # Solo la inicial en minúscula: bajar todo destroza las siglas
             # ('credencial del sat').

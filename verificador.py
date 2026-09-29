@@ -34,7 +34,8 @@ from adaptadores import (ADAPTADORES, GRIT_RESPONSABLE_CUMPLIMIENTO,
                          NEA_RESPONSABLE_CUMPLIMIENTO)
 from schema_expediente import _get
 
-NEA = {"contrato", "contrato_pfae", "pld_pm", "pld_pf", "beneficiario_controlador"}
+NEA = {"contrato", "contrato_pfae", "pld_pm", "pld_pf", "beneficiario_controlador",
+       "autorizacion_buro"}
 GRIT = {"grit_contrato", "grit_pld_pm", "grit_pld_pf", "grit_beneficiario_controlador"}
 PLD = {"pld_pm", "pld_pf", "grit_pld_pm", "grit_pld_pf"}
 CONTRATOS_CON_LINEA = {"contrato", "contrato_pfae"}
@@ -54,6 +55,7 @@ _CAMPOS_DATO = {
     "grit_pld_pf": ["rfc", "nombre_completo", "num_id"],
     "beneficiario_controlador": ["cliente.rfc", "cliente.razon_social"],
     "grit_beneficiario_controlador": ["cliente.rfc", "cliente.razon_social"],
+    "autorizacion_buro": ["rfc", "solicitante"],
 }
 
 

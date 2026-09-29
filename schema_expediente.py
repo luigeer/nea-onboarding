@@ -123,7 +123,10 @@ def expediente_vacio():
         "riesgo_pld": {"grado": None, "factores": [], "fecha_evaluacion": None,
                        "evaluado_por": None, "proxima_actualizacion": None},
 
-        "flags": {"domiciliacion": False, "obligado_solidario": False},
+        # buro_en_paquete: la autorización de buró se firma dentro del paquete
+        # en vez de pedirse antes (cuando no hace falta consultar buró previo).
+        "flags": {"domiciliacion": False, "obligado_solidario": False,
+                  "buro_en_paquete": False},
         # Garante persona física que acompaña —no sustituye— al corporativo.
         # Ver el comentario en `documentos_aplicables`.
         "obligado_solidario_pf": {
@@ -508,6 +511,9 @@ def documentos_aplicables(exp):
 
     if _get(exp, "flags.domiciliacion"):
         docs.append("domiciliacion")
+
+    if _get(exp, "flags.buro_en_paquete"):
+        docs.append("autorizacion_buro")
 
     return docs
 

@@ -38,6 +38,7 @@ from generar_anexo_razonado import generar_anexo_razonado
 from generar_adenda import generar_adenda
 from generar_adenda_pf import generar_adenda_pf
 from generar_domiciliacion import generar_domiciliacion
+from generar_autorizacion_buro import generar_autorizacion_buro
 from generar_contrato_grit import generar_contrato_grit
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -88,6 +89,8 @@ CATALOGO = {
     "domiciliacion": ("Domiciliacion", generar_domiciliacion,
                       "Formato_Domiciliacion_Template.pdf",
                       "Autorización de Domiciliación"),
+    "autorizacion_buro": ("Autorizacion_Buro", generar_autorizacion_buro, None,
+                          "Autorización para solicitar Reportes de Crédito"),
     "grit_contrato": ("Grit_Contrato", generar_contrato_grit, None,
                       "Contrato de Prestación de Servicios (Grit Mobility)"),
     "grit_pld_pm": ("Grit_PLD", generar_pld, None,
