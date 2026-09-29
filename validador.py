@@ -29,7 +29,7 @@ cumplimiento.
 
 from datetime import date, timedelta
 
-from schema_expediente import excepcion_riesgo_vigente
+from schema_expediente import excepcion_riesgo_vigente, estatus_sat_aceptable
 from schema_expediente import (_get,UMBRAL_ESTADOS_CUENTA, ESTADOS_CUENTA_BASE,
                                ESTADOS_CUENTA_AMPLIADO)
 
@@ -341,7 +341,8 @@ def _vigencias(exp, r, hoy):
                      pedir="Volver a enviar, legible: %s" % d.get("tipo"),
                      tipo="legibilidad")
 
-    if (_get(exp, "cliente.validado.situacion_contribuyente") or "").upper() not in ("", "ACTIVO"):
+    estatus = _get(exp, "cliente.validado.situacion_contribuyente")
+    if estatus and not estatus_sat_aceptable(estatus):
         r.anotar(ALTA, "El contribuyente no está ACTIVO ante el SAT",
                  "Situación: %s. El expediente no debe abrirse."
                  % _get(exp, "cliente.validado.situacion_contribuyente"),

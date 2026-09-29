@@ -300,7 +300,8 @@ def extraer_csf(ruta_pdf):
 
     # ── situación del contribuyente ─────────────────────────────────────────
     estatus = _norm(pares.get("Estatus en el padrón")) or _norm(pares.get("Estatusenelpadrón"))
-    if estatus and estatus.upper() != "ACTIVO":
+    from schema_expediente import estatus_sat_aceptable
+    if estatus and not estatus_sat_aceptable(estatus):
         alertas.append("Contribuyente con estatus %r: el expediente no debe abrirse." % estatus)
 
     # ── actividad principal, por porcentaje y no por orden ──────────────────

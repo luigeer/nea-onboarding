@@ -278,7 +278,8 @@ def cmd_nuevo(ruta_csf):
 
     # Compuerta de rechazo temprano
     estatus = (csf.get("situacion_contribuyente") or "").upper()
-    if estatus and estatus != "ACTIVO":
+    from schema_expediente import estatus_sat_aceptable
+    if estatus and not estatus_sat_aceptable(estatus):
         print("\n  ALTO: el contribuyente está %s, no ACTIVO." % estatus)
         print("  El expediente no debe abrirse. (Especificación, etapa 0.)")
         return 1

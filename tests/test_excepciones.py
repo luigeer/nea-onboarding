@@ -111,6 +111,15 @@ sin_rep["representante_legal"]["validado"]["facultades"]["titulos_credito"] = Fa
 check(hay(compuertas_generacion(sin_rep), "títulos de crédito"),
       "la excepción no toca el KYC: las facultades se siguen exigiendo")
 
+prueba = moral_lista()
+prueba["credito"]["excepcion_riesgo"] = {
+    "motivo": "prueba_comercial",
+    "justificacion": "Cliente grande; línea de prueba de $50,000 para que empiece a usarla.",
+    "autorizada_por": "Luis Gomez", "fecha": "2026-09-29"}
+check(compuertas_generacion(prueba) == [],
+      "una prueba comercial es motivo válido de excepción: %r"
+      % compuertas_generacion(prueba))
+
 # ── Paquete sin Grit Mobility ────────────────────────────────────────────────
 con_grit = moral_lista()
 check("grit_contrato" in documentos_aplicables(con_grit),

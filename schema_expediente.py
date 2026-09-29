@@ -35,7 +35,15 @@ TIPOS_CLIENTE = ("persona_moral", "pfae", "persona_fisica")
 TIPOS_OBLIGADO = ("persona_moral", "persona_fisica")
 CRITERIOS_BC = ("participacion", "control_efectivo")
 CONCLUSIONES_ANEXO = ("control_efectivo", "no_identificado", "parcial")
-MOTIVOS_EXCEPCION_RIESGO = ("socio_comercial", "respaldo_obligado_solidario")
+MOTIVOS_EXCEPCION_RIESGO = ("socio_comercial", "respaldo_obligado_solidario",
+                            "prueba_comercial")
+# Estatus del padrón con los que el contribuyente opera. REACTIVADO es uno que
+# estuvo suspendido y volvió: para el SAT está vivo igual que ACTIVO.
+ESTATUS_SAT_OPERANDO = ("ACTIVO", "REACTIVADO")
+
+
+def estatus_sat_aceptable(estatus):
+    return (estatus or "").strip().upper() in ESTATUS_SAT_OPERANDO
 
 
 # ─────────────────────────────────────────────────────────────────────────────
