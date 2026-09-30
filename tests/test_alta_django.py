@@ -94,6 +94,8 @@ check(ad.regimen_capital("SOCIEDAD ANONIMA DE CAPITAL VARIABLE") == "S.A. de C.V
       "y el regimen de capital abreviado")
 check(ad.regimen_fiscal("626 Régimen Simplificado de Confianza").startswith("626"),
       "si ya viene con clave se respeta")
+check(ad.regimen_fiscal("Régimen de los Coordinados") == "624 Coordinados",
+      "la CSF escribe 'Régimen de los Coordinados' y el dropdown '624 Coordinados'")
 check(ad.regimen_fiscal("Un régimen que no existe") is None,
       "un regimen desconocido devuelve None para que se elija a mano")
 
