@@ -484,6 +484,18 @@ def listo_para_generar(**cambios):
 check(not compuertas_generacion(listo_para_generar()),
       "un expediente completo y con linea autorizada puede generar")
 
+# La linea puede autorizarse sin correr el modelo -- respaldada por un obligado
+# solidario con su propia linea ya autorizada, por ejemplo -- y en ese caso los
+# estados de cuenta no le sirven a ningun modelo: no se exigen.
+sin_modelo = listo_para_generar(cuentas_bancarias=[])
+sin_modelo["credito"]["autorizada"]["sin_modelo"] = True
+check(not compuertas_generacion(sin_modelo),
+      "una linea autorizada sin correr el modelo no exige estados de cuenta")
+
+con_modelo_sin_cuentas = listo_para_generar(cuentas_bancarias=[])
+check(any("estados de cuenta" in f for f in compuertas_generacion(con_modelo_sin_cuentas)),
+      "pero si el modelo si corrio, los estados de cuenta se siguen exigiendo")
+
 # Un documento invalido NO se acepta con justificacion: se reemplaza.
 doc = listo_para_generar(observaciones=[{
     "tipo": "vigencia", "severidad": ALTA, "estado": "aceptada",

@@ -38,6 +38,7 @@ from generar_anexo_razonado import generar_anexo_razonado
 from generar_adenda import generar_adenda
 from generar_adenda_pf import generar_adenda_pf
 from generar_domiciliacion import generar_domiciliacion
+from generar_autorizacion_buro import generar_autorizacion_buro
 from generar_contrato_grit import generar_contrato_grit
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -88,6 +89,9 @@ CATALOGO = {
     "domiciliacion": ("Domiciliacion", generar_domiciliacion,
                       "Formato_Domiciliacion_Template.pdf",
                       "Autorización de Domiciliación"),
+    "autorizacion_buro": ("Autorizacion_Buro", generar_autorizacion_buro,
+                          "Autorizacion_Buro_PM_Template.pdf",
+                          "Autorización para solicitar Reportes de Crédito (persona moral)"),
     "grit_contrato": ("Grit_Contrato", generar_contrato_grit, None,
                       "Contrato de Prestación de Servicios (Grit Mobility)"),
     "grit_pld_pm": ("Grit_PLD", generar_pld, None,
@@ -140,6 +144,9 @@ def _firmantes(clave, exp):
         return [cumplimiento]
     if clave == "domiciliacion":
         return [cliente] + cofirmantes
+    if clave == "autorizacion_buro":
+        # El formato tiene una sola línea de firma: la del representante legal.
+        return [cliente]
     if clave == "adenda_os_pm":
         os_ = _get(exp, "obligado_solidario", {})
         return [cliente] + cofirmantes + [

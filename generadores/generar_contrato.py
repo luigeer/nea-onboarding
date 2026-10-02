@@ -54,9 +54,30 @@ CAMPOS = {
     # y alinean cada dato con su etiqueta de la plantilla (top 651.4 y 661.4).
     "firma_rep_legal":    {"x": 152, "y": 134.3, "font_size": 8, "max_ancho": 165,
                            "minimo": 5.0},
+    # Una razón social de 79 caracteres no cabe en un renglón ni a 5 pt: se
+    # sale de la columna y se imprime encima de la firma de Nea. Se parte en
+    # dos renglones; debajo de "Apoderado de:" la plantilla está vacía.
     "firma_razon_social": {"x": 152, "y": 124.3, "font_size": 8, "max_ancho": 165,
-                           "minimo": 5.0},
+                           "minimo": 5.0, "renglones": 2, "interlineado": 8},
 }
+
+
+def _en_dos(c, texto, font, tamano, max_ancho, minimo):
+    """Parte el texto en dos renglones por el corte más parejo entre palabras.
+
+    Devuelve (renglones, tamaño). Un solo renglón si cabe a su tamaño.
+    """
+    if c.stringWidth(texto, font, tamano) <= max_ancho:
+        return [texto], tamano
+    palabras = texto.split()
+    cortes = [(" ".join(palabras[:i]), " ".join(palabras[i:]))
+              for i in range(1, len(palabras))]
+    if not cortes:
+        return [texto], _tamano_ajustado(c, texto, font, tamano, max_ancho, minimo)
+    a, b = min(cortes, key=lambda r: max(c.stringWidth(r[0], font, tamano),
+                                         c.stringWidth(r[1], font, tamano)))
+    largo = a if c.stringWidth(a, font, tamano) >= c.stringWidth(b, font, tamano) else b
+    return [a, b], _tamano_ajustado(c, largo, font, tamano, max_ancho, minimo)
 
 
 def _tamano_ajustado(c, texto, font, tamano, max_ancho, minimo=6.0):
@@ -97,6 +118,13 @@ def fill_contrato(datos: dict, output_path: str, input_pdf_path: str = None):
         c.setFillColorRGB(0, 0, 0)
         font = "Helvetica-Bold" if cfg.get("bold") else "Helvetica"
         tamano = cfg["font_size"]
+        if cfg.get("renglones") == 2:
+            renglones, tamano = _en_dos(c, str(valor), font, tamano, cfg["max_ancho"],
+                                        cfg.get("minimo", 6.0))
+            c.setFont(font, tamano)
+            for i, r in enumerate(renglones):
+                c.drawString(cfg["x"], cfg["y"] - i * cfg["interlineado"], r)
+            continue
         if cfg.get("max_ancho"):
             tamano = _tamano_ajustado(c, str(valor), font, tamano, cfg["max_ancho"],
                                       minimo=cfg.get("minimo", 6.0))

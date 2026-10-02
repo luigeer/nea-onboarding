@@ -34,7 +34,8 @@ from adaptadores import (ADAPTADORES, GRIT_RESPONSABLE_CUMPLIMIENTO,
                          NEA_RESPONSABLE_CUMPLIMIENTO)
 from schema_expediente import _get
 
-NEA = {"contrato", "contrato_pfae", "pld_pm", "pld_pf", "beneficiario_controlador"}
+NEA = {"contrato", "contrato_pfae", "pld_pm", "pld_pf", "beneficiario_controlador",
+       "autorizacion_buro"}
 GRIT = {"grit_contrato", "grit_pld_pm", "grit_pld_pf", "grit_beneficiario_controlador"}
 PLD = {"pld_pm", "pld_pf", "grit_pld_pm", "grit_pld_pf"}
 CONTRATOS_CON_LINEA = {"contrato", "contrato_pfae"}
@@ -54,6 +55,7 @@ _CAMPOS_DATO = {
     "grit_pld_pf": ["rfc", "nombre_completo", "num_id"],
     "beneficiario_controlador": ["cliente.rfc", "cliente.razon_social"],
     "grit_beneficiario_controlador": ["cliente.rfc", "cliente.razon_social"],
+    "autorizacion_buro": ["rfc", "razon_social", "representante"],
 }
 
 
@@ -115,20 +117,27 @@ def casillas_de_identificacion(ruta):
     return None
 
 
-def _renglon_de(palabras, etiqueta):
-    """Texto impreso a la derecha de la etiqueta, en su mismo renglón."""
+def _renglon_de(palabras, etiqueta, continua=False):
+    """Texto impreso a la derecha de la etiqueta, en su mismo renglón.
+
+    Con `continua`, también el renglón de abajo: una razón social larga se
+    parte en dos para no encimarse con la firma de Nea.
+    """
     et = next((w for w in palabras if w["text"] == etiqueta and w["x0"] < 320), None)
     if et is None:
         return None
-    return _norm(" ".join(w["text"] for w in sorted(palabras, key=lambda w: w["x0"])
-                          if 140 <= w["x0"] < 320 and abs(w["top"] - et["top"]) < 3))
+    abajo = 12 if continua else 3
+    return _norm(" ".join(w["text"] for w in sorted(palabras,
+                                                    key=lambda w: (round(w["top"]), w["x0"]))
+                          if 140 <= w["x0"] < 320
+                          and -3 < w["top"] - et["top"] < abajo))
 
 
 def _regla_firma(clave, ruta, datos):
     with pdfplumber.open(ruta) as pdf:
         palabras = pdf.pages[0].extract_words()
     nombre = _renglon_de(palabras, "Nombre:")
-    apoderado = _renglon_de(palabras, "Apoderado")
+    apoderado = _renglon_de(palabras, "Apoderado", continua=True)
     persona, empresa = datos.get("firma_rep_legal"), datos.get("firma_razon_social")
     fuera = []
     if persona and not (nombre and _aparece(persona, nombre)):

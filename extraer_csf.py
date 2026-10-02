@@ -547,7 +547,8 @@ def a_expediente(csf, exp):
     })
     d = csf["domicilio"]
     val["domicilio"] = {k: d.get(k) for k in
-                        ("calle", "num_ext", "colonia", "cp", "municipio", "estado", "pais")}
+                        ("calle", "num_ext", "num_int", "colonia", "cp", "municipio",
+                         "estado", "pais")}
 
     # En persona física la CSF describe al propio cliente, que es también quien firma.
     if csf["tipo_cliente"] != "persona_moral":

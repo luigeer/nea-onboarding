@@ -164,6 +164,15 @@ try:
 except ValueError:
     check(True, "CSF de moral como beneficiario debe rechazarse")
 
+# el número interior de la CSF llega al expediente. Sin él, "Prol. Reforma 1725
+# int. B 25 y 26" salía en todos los documentos como "Prol. Reforma 1725".
+from extraer_csf import a_expediente
+csf_int = dict(CSF_PM, domicilio=dict(DOM, num_int="B 25 Y 26"))
+exp = expediente_vacio()
+a_expediente(csf_int, exp)
+check(exp["cliente"]["validado"]["domicilio"].get("num_int") == "B 25 Y 26",
+      "el número interior de la CSF se guarda en el domicilio del cliente")
+
 # ─────────────────────────────────────────────────────────────────────────────
 print()
 if fallas:

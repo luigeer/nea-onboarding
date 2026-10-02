@@ -74,8 +74,39 @@ def test_firma_cliente_nombre_arriba_empresa_abajo():
           "la razón social va alineada con 'Apoderado de:'")
 
 
+LARGA = "TECNOPROGRAMACION HUMANA ESPECIALIZADA EN SISTEMAS OPERATIVOS, S.A. de C.V."
+
+
+def test_razon_social_larga_no_se_encima_con_la_firma_de_nea():
+    """Con 79 caracteres, ni al tamaño mínimo cabe en un renglón: se salía de la
+    columna y se imprimía encima de 'Apoderado de: Grit Payment Solutions'."""
+    import verificador
+    datos = dict(DATOS, firma_razon_social=LARGA)
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "contrato.pdf")
+        fill_contrato(datos, out)
+        with pdfplumber.open(out) as pdf:
+            p = pdf.pages[0]
+            apoderado = _top_de(p, "Apoderado", x_max=320)
+            suyas = [w for w in p.filter(verificador._es_del_sistema).extract_words()
+                     if w["top"] > apoderado - 2 and w["top"] < apoderado + 14
+                     and w["x0"] >= 140]
+        hallazgos = verificador._regla_firma("contrato", out, datos)
+    texto = " ".join(w["text"] for w in suyas)
+    check(verificador._aparece(LARGA, verificador._norm(texto)),
+          "la razón social larga sale completa (%r)" % texto)
+    check(all(w["x1"] <= 320 for w in suyas),
+          "no invade la columna de la firma de Nea (x hasta %.0f)"
+          % max([w["x1"] for w in suyas] or [0]))
+    check(suyas and all(w["top"] - apoderado > -1.5 for w in suyas)
+          and abs(min(w["top"] for w in suyas) - apoderado) < 1.5,
+          "empieza alineada con 'Apoderado de:'")
+    check(hallazgos == [], "el verificador la encuentra (%r)" % hallazgos)
+
+
 def main():
     test_firma_cliente_nombre_arriba_empresa_abajo()
+    test_razon_social_larga_no_se_encima_con_la_firma_de_nea()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))

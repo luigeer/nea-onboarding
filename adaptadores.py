@@ -54,6 +54,15 @@ def _fecha_larga(iso):
         return iso
 
 
+def _exterior_interior(dom):
+    """'1725' + 'B 25 Y 26' -> '1725 INT. B 25 Y 26', para el renglón
+    "No. Exterior/Interior" del PLD. Sin interior, el exterior tal cual."""
+    ext, inte = dom.get("num_ext"), dom.get("num_int")
+    if ext and inte:
+        return "%s INT. %s" % (ext, inte)
+    return ext
+
+
 def _fecha_corta(iso):
     """'2026-07-29' -> '29/07/2026'."""
     if not iso:
@@ -86,6 +95,7 @@ def _domicilio_una_linea(dom):
         return None
     piezas = [
         " ".join(x for x in [dom.get("calle"), dom.get("num_ext")] if x),
+        ("Int. %s" % dom["num_int"]) if dom.get("num_int") else None,
         ("Col. %s" % dom["colonia"]) if dom.get("colonia") else None,
         ("C.P. %s" % dom["cp"]) if dom.get("cp") else None,
         dom.get("municipio"), dom.get("estado"),
@@ -148,7 +158,7 @@ def para_pld_pm(exp):
         "pais_nacionalidad": "México",
         "rfc_empresa": val.get("rfc"),
         "actividad_giro": val.get("actividad_economica"),
-        "calle": dom.get("calle"), "num_ext": dom.get("num_ext"),
+        "calle": dom.get("calle"), "num_ext": _exterior_interior(dom),
         "colonia": dom.get("colonia"), "cp": dom.get("cp"),
         "municipio": dom.get("municipio"), "estado": dom.get("estado"),
         "pais_domicilio": dom.get("pais") or "México",
@@ -194,7 +204,7 @@ def para_pld_pf(exp):
         "pais_nacionalidad": rep.get("pais_nacionalidad") or "México",
         "curp": rep.get("curp"), "rfc": rep.get("rfc") or val.get("rfc"),
         "actividad_ocupacion": val.get("actividad_economica"),
-        "calle": dom.get("calle"), "num_ext": dom.get("num_ext"),
+        "calle": dom.get("calle"), "num_ext": _exterior_interior(dom),
         "colonia": dom.get("colonia"), "cp": dom.get("cp"),
         "municipio": dom.get("municipio"), "estado": dom.get("estado"),
         "pais_domicilio": dom.get("pais") or "México",
@@ -258,7 +268,11 @@ def para_beneficiario(exp):
             "capital_social": con.get("capital_social"),
             "acciones": con.get("acciones"),
         },
-        "beneficiarios": _get(exp, "beneficiarios_controladores", []),
+        # El domicilio llega como texto o por campos, según quién capturó el
+        # expediente. El formato imprime lo que recibe: por campos salía crudo.
+        "beneficiarios": [dict(b, domicilio=_domicilio_una_linea(b["domicilio"]))
+                          if isinstance(b.get("domicilio"), dict) else b
+                          for b in _get(exp, "beneficiarios_controladores", [])],
         "estructura_accionaria": _get(exp, "estructura_accionaria", []),
         "organo_administracion": _get(exp, "organo_administracion", {}),
         "firmante_cliente": {"nombre": rep.get("nombre"),
@@ -466,6 +480,35 @@ def para_domiciliacion(exp):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 9. Autorización de consulta a Buró (persona moral)
+# ─────────────────────────────────────────────────────────────────────────────
+def para_autorizacion_buro(exp):
+    """La autorización para que Grit Payment Solutions consulte a la empresa.
+
+    El teléfono es el de la empresa, el mismo del PLD: dos teléfonos distintos
+    del mismo cliente en un solo paquete no se explican. La fecha es la de
+    operación, como en el contrato y la domiciliación que se firman con ella.
+    """
+    dom = _get(exp, "cliente.validado.domicilio", {}) or {}
+    calle = " ".join(p for p in (dom.get("calle"), dom.get("num_ext")) if p) or None
+    if calle and dom.get("num_int"):
+        calle = "%s INT. %s" % (calle, dom["num_int"])
+    return {
+        "razon_social": _get(exp, "cliente.validado.razon_social"),
+        "representante": _get(exp, "representante_legal.validado.nombre"),
+        "rfc": _get(exp, "cliente.validado.rfc"),
+        "domicilio": calle,
+        "colonia": dom.get("colonia"),
+        "municipio": dom.get("municipio"),
+        "estado": dom.get("estado"),
+        "cp": dom.get("cp"),
+        "telefono": _get(exp, "cliente.validado.telefono"),
+        "fecha": _fecha_larga(_get(exp, "fechas.operacion")),
+        "correo_representante": _get(exp, "representante_legal.propuesto.correo"),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helpers de documentos
 # ─────────────────────────────────────────────────────────────────────────────
 def _doc_attr(exp, tipo, attr, default=None):
@@ -508,6 +551,7 @@ _CRUDOS = {
     "adenda_os_pm": para_adenda_pm,
     "adenda_os_pf": para_adenda_pf,
     "domiciliacion": para_domiciliacion,
+    "autorizacion_buro": para_autorizacion_buro,
 }
 
 

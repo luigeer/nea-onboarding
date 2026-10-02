@@ -288,7 +288,12 @@ def compuertas_generacion(exp):
                               ", ".join(faltantes))
 
     # ── estados de cuenta contra la línea autorizada ────────────────────────
-    if linea:
+    # Se piden para alimentar el módulo de estados de cuenta del modelo de
+    # riesgo. Si la línea se autorizó sin correr el modelo -- respaldada por un
+    # obligado solidario con su propia línea ya autorizada, por decisión de
+    # comité -- no hay modelo al que alimentar, y pedirlos sería una solicitud
+    # de más sin ningún uso.
+    if linea and not _get(exp, "credito.autorizada.sin_modelo"):
         requeridos = (ESTADOS_CUENTA_AMPLIADO if float(linea) > UMBRAL_ESTADOS_CUENTA
                       else ESTADOS_CUENTA_BASE)
         cuentas = _get(exp, "cuentas_bancarias", [])
@@ -390,6 +395,9 @@ def documentos_aplicables(exp):
     if tipo == "persona_moral":
         docs.append("pld_pm")
         docs.append("grit_pld_pm")
+        # La plantilla trae impresa la "X" de Persona Moral: no sirve para una
+        # persona física, que necesitará su propio formato.
+        docs.append("autorizacion_buro")
         if _get(exp, "beneficiarios_controladores"):
             docs.append("beneficiario_controlador")
             docs.append("grit_beneficiario_controlador")
