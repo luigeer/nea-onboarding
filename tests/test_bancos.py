@@ -99,6 +99,51 @@ fila_sin_cuenta = bancos.fila_estados_cuenta("MEZA-01", {"banco": "BBVA"})
 check(fila_sin_cuenta["cuenta"] is None,
       "sin numero de cuenta en el encabezado, la fila no revienta")
 
+print("saldos_extremos(): saldo mínimo y máximo al cierre de cada día")
+
+
+def mv(fecha, tipo, monto, saldo=None):
+    m = {"fecha": fecha, "tipo": tipo, "monto": monto}
+    if saldo is not None:
+        m["saldo"] = saldo
+    return m
+
+
+# Día 1: un barrido deja la cuenta en 5 a media mañana, pero cierra en 505.
+# Lo que cuenta es el cierre: la caída intradía no es el saldo del día.
+con_saldo = [mv("01-JUN", "abono", 100.0, 1100.0), mv("01-JUN", "cargo", 1095.0, 5.0),
+             mv("01-JUN", "abono", 500.0, 505.0), mv("02-JUN", "cargo", 400.0, 105.0)]
+mn, mx = bancos.saldos_extremos(1000.0, con_saldo)
+check(mn == 105.0, "el mínimo es el peor cierre de día, no la caída intradía (%r)" % mn)
+check(mx == 1000.0, "el saldo inicial cuenta para el máximo (%r)" % mx)
+
+# BBVA no imprime el saldo de cada renglón: se reconstruye desde el inicial.
+sin_saldo = [mv("01/JUN", "abono", 100.0), mv("01/JUN", "cargo", 1095.0),
+             mv("01/JUN", "abono", 500.0), mv("02/JUN", "cargo", 400.0)]
+check(bancos.saldos_extremos(1000.0, sin_saldo) == (105.0, 1000.0),
+      "sin saldo por renglón, se reconstruye y da lo mismo")
+check(bancos.saldos_extremos(None, sin_saldo) == (None, None),
+      "sin saldo inicial no se inventa nada")
+
+print("identificar() agrega el mínimo y el máximo al encabezado")
+enc_real = {"banco": "X", "saldo_inicial": 1000.0}
+
+
+class ParserConMovs(ParserFalso):
+    def leer(self, ruta):
+        return dict(enc_real), list(con_saldo)
+
+
+r = bancos.identificar("x.pdf", parsers={"x": ParserConMovs("x", cuadra_resultado=True)})
+check(r["encabezado"].get("saldo_minimo") == 105.0
+      and r["encabezado"].get("saldo_maximo") == 1000.0,
+      "el encabezado sale con saldo_minimo y saldo_maximo (%r)" % r["encabezado"])
+
+fila_ext = bancos.fila_estados_cuenta("T-01", dict(encabezado, saldo_minimo=105.0,
+                                                   saldo_maximo=1000.0))
+check(fila_ext.get("saldo_minimo") == 105.0 and fila_ext.get("saldo_maximo") == 1000.0,
+      "fila_estados_cuenta los guarda en Supabase")
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))

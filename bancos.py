@@ -22,6 +22,33 @@ import santander
 PARSERS = {"bbva": bbva, "mifel": mifel, "santander": santander}
 
 
+def saldos_extremos(saldo_inicial, movimientos):
+    """(saldo mínimo, saldo máximo) del periodo, al cierre de cada día.
+
+    Se toma el saldo con el que cierra cada día, más el saldo inicial. No el
+    saldo después de cada movimiento: una cuenta que barre todo a otra a media
+    mañana y recibe las ventas en la tarde no pasó el día en ceros, y el modelo
+    divide este saldo entre la línea.
+
+    Si el renglón trae su saldo (Mifel, Santander) se usa ese; si no (BBVA) se
+    reconstruye desde el saldo inicial. Los movimientos llegan en orden.
+    """
+    if saldo_inicial is None:
+        return None, None
+    saldo, cierres, dia = saldo_inicial, [saldo_inicial], None
+    for m in movimientos:
+        if dia is not None and m.get("fecha") != dia:
+            cierres.append(saldo)
+        dia = m.get("fecha")
+        if m.get("saldo") is not None:
+            saldo = m["saldo"]
+        else:
+            saldo = saldo - m["monto"] if m["tipo"] == "cargo" else saldo + m["monto"]
+    if dia is not None:
+        cierres.append(saldo)
+    return round(min(cierres), 2), round(max(cierres), 2)
+
+
 def identificar(ruta, parsers=None):
     """Prueba cada parser registrado sobre el PDF.
 
@@ -41,6 +68,12 @@ def identificar(ruta, parsers=None):
             continue
         ok, diagnostico = modulo.cuadra(encabezado, movimientos)
         if ok:
+            # Solo después de cuadrar: un saldo reconstruido de un estado que no
+            # cuadra no describe la cuenta.
+            mn, mx = saldos_extremos(encabezado.get("saldo_inicial"), movimientos)
+            if mn is not None:
+                encabezado.setdefault("saldo_minimo", mn)
+                encabezado.setdefault("saldo_maximo", mx)
             return {"banco": nombre, "encabezado": encabezado,
                     "movimientos": movimientos, "diagnostico": diagnostico}
         intentos.append({"banco": nombre, "cuadra": False, "diagnostico": diagnostico})
@@ -66,6 +99,8 @@ def fila_estados_cuenta(folio, encabezado, drive_file_id=None):
         "saldo_inicial": encabezado.get("saldo_inicial"),
         "saldo_final": encabezado.get("saldo_final"),
         "saldo_promedio": encabezado.get("saldo_promedio"),
+        "saldo_minimo": encabezado.get("saldo_minimo"),
+        "saldo_maximo": encabezado.get("saldo_maximo"),
         "numero_depositos": encabezado.get("numero_depositos"),
         "monto_depositos": encabezado.get("monto_depositos"),
         "numero_retiros": encabezado.get("numero_retiros"),
