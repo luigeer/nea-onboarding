@@ -192,14 +192,19 @@ URL_CEP = "https://www.banxico.org.mx/cep/"
 
 
 def instrucciones(m):
-    """Los datos exactos que pide el formulario de Banxico para un movimiento."""
+    """Los datos exactos que pide el formulario de Banxico para un movimiento.
+
+    Un movimiento que trae `banco_emisor` y `banco_receptor` (los de Santander)
+    se consulta con esos. Sin ellos es de Banco del Bajío, como siempre.
+    """
     return {
         "url": URL_CEP,
         "fecha_operacion": m["fecha"],
         "criterio": "Clave de rastreo",
         "clave_rastreo": m.get("clave_rastreo"),
-        "banco_emisor": "BanBajío",
-        "banco_receptor": m.get("institucion_receptora") or m.get("institucion_ordenante"),
+        "banco_emisor": m.get("banco_emisor") or "BanBajío",
+        "banco_receptor": (m.get("banco_receptor") or m.get("institucion_receptora")
+                           or m.get("institucion_ordenante")),
         "cuenta_beneficiaria": m.get("cuenta_beneficiaria"),
         "monto": m.get("monto"),
         "beneficiario_declarado": m.get("beneficiario"),

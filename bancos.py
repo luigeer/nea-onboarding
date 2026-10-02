@@ -17,8 +17,9 @@ PARSERS. No hay que tocar identificar() ni nea.py.
 
 import bbva
 import mifel
+import santander
 
-PARSERS = {"bbva": bbva, "mifel": mifel}
+PARSERS = {"bbva": bbva, "mifel": mifel, "santander": santander}
 
 
 def identificar(ruta, parsers=None):
