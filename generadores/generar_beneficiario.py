@@ -202,16 +202,20 @@ def _seccion_i(D, S):
     cl = D["cliente"]
     ins = cl.get("instrumento", {})
     fed = cl.get("fedatario", {})
+    # Una sociedad puede constituirse por póliza ante corredor público en vez de
+    # por escritura ante notario; el formato nombra lo que de verdad es.
+    corredor = fed.get("tipo") == "corredor"
     instrumento = None
     if ins:
-        instrumento = "Escritura Pública No. %s%s, de fecha %s" % (
+        instrumento = "%s No. %s%s, de fecha %s" % (
+            "Póliza" if corredor else "Escritura Pública",
             ins.get("numero", ""),
             (", Libro %s" % ins["libro"]) if ins.get("libro") else "",
             ins.get("fecha", ""))
     fedatario = None
     if fed:
-        fedatario = "%s, Notario Público No. %s%s" % (
-            fed.get("nombre", ""), fed.get("numero", ""),
+        fedatario = "%s, %s Público No. %s%s" % (
+            fed.get("nombre", ""), "Corredor" if corredor else "Notario", fed.get("numero", ""),
             (" de %s" % fed["plaza"]) if fed.get("plaza") else "")
 
     pares = [

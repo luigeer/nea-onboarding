@@ -65,7 +65,8 @@ def expediente_vacio():
                 "regimen_capital": None, "domicilio_fiscal": None,
                 "actividad_economica": None, "regimen_fiscal": None,
                 "inicio_operaciones": None, "situacion_contribuyente": None,
-                "domicilio": {"calle": None, "num_ext": None, "colonia": None,
+                "domicilio": {"calle": None, "num_ext": None, "num_int": None,
+                              "colonia": None,
                               "cp": None, "municipio": None, "estado": None,
                               "pais": None},
                 "telefono": None, "correo": None,
@@ -75,6 +76,7 @@ def expediente_vacio():
         "constitucion": {
             "instrumento": None, "libro": None, "fecha": None,
             "fedatario": None, "notaria": None, "plaza": None,
+            "tipo_fedatario": None,            # "notario" (default) | "corredor"
             "inscripcion_rpc": None, "fecha_inscripcion_rpc": None,
             "cud_economia": None,
             "capital_social": None, "acciones": None, "duracion": None,

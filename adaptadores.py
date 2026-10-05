@@ -81,6 +81,14 @@ def _apellidos_primero(nombre):
     return " ".join(partes[-2:] + partes[:-2]).upper()
 
 
+def _exterior_interior(dom):
+    """'No. Exterior/Interior' del PLD: el interior de la CSF no se pierde."""
+    ext, inte = dom.get("num_ext"), dom.get("num_int")
+    if ext and inte:
+        return "%s INT. %s" % (ext, inte)
+    return ext or inte
+
+
 def _domicilio_una_linea(dom):
     if not dom:
         return None
@@ -148,7 +156,7 @@ def para_pld_pm(exp):
         "pais_nacionalidad": "México",
         "rfc_empresa": val.get("rfc"),
         "actividad_giro": val.get("actividad_economica"),
-        "calle": dom.get("calle"), "num_ext": dom.get("num_ext"),
+        "calle": dom.get("calle"), "num_ext": _exterior_interior(dom),
         "colonia": dom.get("colonia"), "cp": dom.get("cp"),
         "municipio": dom.get("municipio"), "estado": dom.get("estado"),
         "pais_domicilio": dom.get("pais") or "México",
@@ -246,7 +254,8 @@ def para_beneficiario(exp):
             "instrumento": {"numero": con.get("instrumento"), "libro": con.get("libro"),
                             "fecha": _fecha_corta(con.get("fecha"))},
             "fedatario": {"nombre": con.get("fedatario"), "numero": con.get("notaria"),
-                          "plaza": con.get("plaza")},
+                          "plaza": con.get("plaza"),
+                          "tipo": con.get("tipo_fedatario") or "notario"},
             "cud_economia": con.get("cud_economia"),
             "domicilio_fiscal": val.get("domicilio_fiscal") or _domicilio_una_linea(
                 val.get("domicilio")),
