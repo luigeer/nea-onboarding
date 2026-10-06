@@ -116,6 +116,22 @@ def test_sale_en_persona_moral_y_no_en_persona_fisica():
           "la persona física no lleva la de persona moral")
 
 
+def test_no_se_genera_si_el_cliente_ya_entrego_una():
+    """Si el expediente ya trae una autorización de buró del cliente, pedirle
+    que firme otra es una vuelta de más. Una superada no cuenta."""
+    e = expediente()
+    e["documentos"] = [{"tipo": "autorizacion_buro", "file_id": "abc"}]
+    check("autorizacion_buro" not in documentos_aplicables(e),
+          "con una autorización ya entregada no se genera otra")
+    e["documentos"] = [{"tipo": "autorizacion_buro", "file_id": "abc",
+                        "superado_por": "def"}]
+    check("autorizacion_buro" in documentos_aplicables(e),
+          "una autorización superada no cuenta: se genera la nueva")
+    e["documentos"] = [{"tipo": "csf", "file_id": "x"}]
+    check("autorizacion_buro" in documentos_aplicables(e),
+          "sin autorización entregada se genera")
+
+
 def test_solo_firma_el_representante_legal():
     f = _firmantes("autorizacion_buro", expediente())
     check([x["rol"] for x in f] == ["cliente"],
@@ -152,6 +168,7 @@ def main():
     test_el_pdf_sale_sin_campos_editables()
     test_un_dato_faltante_se_avisa_como_campo_en_blanco()
     test_sale_en_persona_moral_y_no_en_persona_fisica()
+    test_no_se_genera_si_el_cliente_ya_entrego_una()
     test_solo_firma_el_representante_legal()
     test_va_en_su_propia_division_de_weetrust()
     test_el_verificador_la_revisa()

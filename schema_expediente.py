@@ -396,8 +396,12 @@ def documentos_aplicables(exp):
         docs.append("pld_pm")
         docs.append("grit_pld_pm")
         # La plantilla trae impresa la "X" de Persona Moral: no sirve para una
-        # persona física, que necesitará su propio formato.
-        docs.append("autorizacion_buro")
+        # persona física, que necesitará su propio formato. Si el cliente ya
+        # entregó una autorización vigente, pedirle otra es una vuelta de más.
+        ya_entregada = any(d.get("tipo") == "autorizacion_buro" and not d.get("superado_por")
+                           for d in _get(exp, "documentos", []) or [])
+        if not ya_entregada:
+            docs.append("autorizacion_buro")
         if _get(exp, "beneficiarios_controladores"):
             docs.append("beneficiario_controlador")
             docs.append("grit_beneficiario_controlador")
