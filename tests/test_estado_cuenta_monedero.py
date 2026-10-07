@@ -97,6 +97,34 @@ check(c["folio_operacion"] == "388927", "folio de operación: %r" % c["folio_ope
 
 check(ecm._cargos([TABLA_TRASLADOS]) == [], "una página sin ningún bloque de cargo regresa lista vacía")
 
+# ── Un cargo partido entre dos páginas ─────────────────────────────────────
+# Caso real (Efecticard, julio 2026): al pie de la página 1 quedan el
+# encabezado y los datos, sin la columna vacía; al inicio de la página 2,
+# el encabezado repetido con el valor unitario y el importe. Se perdía el
+# cargo completo y el estado no cuadraba por exactamente ese importe.
+MITAD_ARRIBA = [
+    ["Identificador", "Fecha", "RFC", "ClavedeEstación", "Cantidad",
+     "TipodeCombustible", "Unidad", "NombreCombustible", "FoliodeOperación"],
+    ["4125309", "2026-07-0810:27:31", "CAR970613UQ1", "0", "67.990", "1", "LTS", "Magna", "77"],
+]
+MITAD_ABAJO = [
+    ["Identificador", "Fecha", None, "RFC", "ClavedeEstación", "Cantidad",
+     "TipodeCombustible", "Unidad", "NombreCombustible", "FoliodeOperación"],
+    ["ValorUnitario", None, "Importe", None, None, None, None, None, None, None],
+    ["23.870", None, "1404.68", None, None, None, None, None, None, None],
+]
+partido = ecm._cargos([MITAD_ARRIBA, TABLA_TRASLADOS, MITAD_ABAJO, TABLA_CARGO])
+check(len(partido) == 2, "el cargo partido cuenta como uno, más el completo: %d" % len(partido))
+p = partido[0] if partido else {}
+check(p.get("importe") == 1404.68 and p.get("valor_unitario") == 23.870,
+      "el importe de la página siguiente se une a su cargo: %r" % p.get("importe"))
+check(p.get("rfc_estacion") == "CAR970613UQ1" and p.get("clave_estacion") == "0"
+      and p.get("cantidad") == 67.990,
+      "sin la columna vacía, RFC, clave y litros se leen por nombre: %r %r %r"
+      % (p.get("rfc_estacion"), p.get("clave_estacion"), p.get("cantidad")))
+check(partido[1]["importe"] == 909.35 if len(partido) > 1 else False,
+      "el cargo completo que sigue no se mezcla con el partido")
+
 
 # ── cuadra(): la suma de importes contra el subtotal declarado ────────────
 CARGOS_DE_PRUEBA = [

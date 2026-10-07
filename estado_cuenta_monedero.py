@@ -87,27 +87,61 @@ def _cargos(tablas):
     encabezado de 'Valor Unitario/Importe', datos de esos dos. Se
     distingue de la tabla de 'Traslados' (que también tiene forma de
     tabla chica) por su propio encabezado ('Identificador', 'Fecha')."""
-    cargos = []
+    # Las columnas se leen por el nombre de su encabezado, no por posición:
+    # según dónde cae en la hoja, la tabla trae o no una columna vacía entre
+    # Fecha y RFC, y leer por posición tomaba la clave como RFC.
+    #
+    # Un cargo al pie de página queda partido: el encabezado y los datos en
+    # una página, y el valor unitario e importe al inicio de la siguiente,
+    # bajo el encabezado repetido. Por eso se reciben las tablas de todas
+    # las páginas en orden, y un cargo sin importe se completa con la
+    # siguiente tabla de cargo que solo traiga esas filas. Antes se perdía el
+    # cargo completo y el estado no cuadraba por exactamente ese importe.
+    def _num(v):
+        return float(v) if v else None
+
+    cargos, pendiente = [], None
     for t in tablas:
-        if not t or len(t) < 4 or t[0][0] != "Identificador" or t[0][1] != "Fecha":
+        if not t or not t[0] or t[0][0] != "Identificador" or "Fecha" not in t[0]:
             continue
-        datos = t[1]
-        m = RE_FECHA_HORA.match(datos[1] or "")
-        fecha, hora = (m.group(1), m.group(2)) if m else (datos[1], None)
-        valor_importe = t[3]
-        cargos.append({
-            "identificador": datos[0],
+        col = {nombre: i for i, nombre in enumerate(t[0]) if nombre}
+        filas = t[1:]
+        datos = filas[0] if filas and filas[0] and filas[0][0] != "ValorUnitario" else None
+        vu_i = next((i for i, f in enumerate(filas) if f and f[0] == "ValorUnitario"), None)
+        valor_importe = None
+        if vu_i is not None and vu_i + 1 < len(filas):
+            cab, val = filas[vu_i], filas[vu_i + 1]
+            pos = {nombre: i for i, nombre in enumerate(cab) if nombre}
+            valor_importe = (val[pos["ValorUnitario"]], val[pos.get("Importe", 2)])
+
+        if datos is None:
+            if pendiente is not None and valor_importe:
+                pendiente["valor_unitario"] = _num(valor_importe[0])
+                pendiente["importe"] = _num(valor_importe[1])
+                cargos.append(pendiente)
+                pendiente = None
+            continue
+
+        dato = lambda nombre: datos[col[nombre]] if nombre in col else None
+        m = RE_FECHA_HORA.match(dato("Fecha") or "")
+        fecha, hora = (m.group(1), m.group(2)) if m else (dato("Fecha"), None)
+        cargo = {
+            "identificador": dato("Identificador"),
             "fecha": fecha,
             "hora": hora,
-            "rfc_estacion": datos[3],
-            "clave_estacion": datos[4],
-            "cantidad": float(datos[5]) if datos[5] else None,
-            "tipo_combustible": datos[6],
-            "nombre_combustible": datos[8],
-            "folio_operacion": datos[9],
-            "valor_unitario": float(valor_importe[0]) if valor_importe[0] else None,
-            "importe": float(valor_importe[2]) if valor_importe[2] else None,
-        })
+            "rfc_estacion": dato("RFC"),
+            "clave_estacion": dato("ClavedeEstación"),
+            "cantidad": _num(dato("Cantidad")),
+            "tipo_combustible": dato("TipodeCombustible"),
+            "nombre_combustible": dato("NombreCombustible"),
+            "folio_operacion": dato("FoliodeOperación"),
+            "valor_unitario": _num(valor_importe[0]) if valor_importe else None,
+            "importe": _num(valor_importe[1]) if valor_importe else None,
+        }
+        if valor_importe:
+            cargos.append(cargo)
+        else:
+            pendiente = cargo
     return cargos
 
 
@@ -143,12 +177,14 @@ def leer_pdf(ruta):
     with pdfplumber.open(ruta) as pdf:
         encabezado = _encabezado(pdf.pages[0].extract_text() or "")
         resumen = None
-        cargos = []
+        todas = []
         for pagina in pdf.pages:
             tablas = pagina.extract_tables()
             if resumen is None:
                 resumen = _resumen_cuenta(tablas)
-            cargos.extend(_cargos(tablas))
+            todas.extend(tablas)
+        # Todas las páginas juntas: un cargo puede quedar partido entre dos.
+        cargos = _cargos(todas)
     return {"encabezado": encabezado, "resumen": resumen, "cargos": cargos}
 
 
