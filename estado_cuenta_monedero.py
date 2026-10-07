@@ -211,10 +211,12 @@ def _partes_nombre(nombre_archivo):
     nombre, ext = os.path.splitext(os.path.basename(nombre_archivo))
     if ext.lower() not in (".pdf", ".xml"):
         return None
+    # Un cuarto pedazo es el folio fiscal abreviado: lo lleva el nombre cuando
+    # el mes tiene más de una factura (estaciones_monedero.archivos_unicos).
     partes = nombre.split("_")
-    if len(partes) != 3:
+    if len(partes) not in (3, 4):
         return None
-    return tuple(partes)
+    return tuple(partes[:3])
 
 
 def reporte_carpeta(carpeta):
@@ -267,10 +269,22 @@ def reporte_carpeta(carpeta):
         except Exception as e:
             cliente["sospechosos"].append("%s (no se pudo leer: %s)" % (ruta, e))
             continue
+        # Dos facturas del mismo mes y monedero se suman: antes la segunda
+        # reemplazaba a la primera y el gasto del mes salía incompleto.
+        previo = cliente["meses"].get((mes, rfc_monedero))
+        por_estacion = agregar_por_estacion(datos["cargos"])
+        subtotal = datos["resumen"]["subtotal"]
+        if previo:
+            for clave, a in previo["por_estacion"].items():
+                b = por_estacion.setdefault(clave, {"cargas": 0, "litros": 0.0, "importe": 0.0})
+                b["cargas"] += a["cargas"]
+                b["litros"] += a["litros"]
+                b["importe"] += a["importe"]
+            subtotal = (previo["subtotal"] or 0) + (subtotal or 0)
         cliente["meses"][(mes, rfc_monedero)] = {
             "rfc_monedero": rfc_monedero,
-            "por_estacion": agregar_por_estacion(datos["cargos"]),
-            "subtotal": datos["resumen"]["subtotal"],
+            "por_estacion": por_estacion,
+            "subtotal": subtotal,
         }
     return resultado
 

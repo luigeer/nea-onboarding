@@ -343,6 +343,46 @@ check(len(reporte_un_cliente["meses"]) == 1,
       "no trae el mes del OTRO cliente que vive en la misma carpeta: %d"
       % len(reporte_un_cliente["meses"]))
 
+# ── Dos estados de cuenta del mismo mes y monedero se suman ────────────────
+# Un mes con dos facturas lleva el folio fiscal como cuarto pedazo del nombre.
+# Antes el segundo archivo reemplazaba al primero en el reporte.
+check(ecm._partes_nombre("CLI020202CD2_FIC010101AB1_2026-07_a444b879.pdf")
+      == ("CLI020202CD2", "FIC010101AB1", "2026-07"),
+      "el nombre con sufijo de folio se reconoce")
+check(ecm._partes_nombre("CLI020202CD2_FIC010101AB1_2026-07.pdf")
+      == ("CLI020202CD2", "FIC010101AB1", "2026-07"),
+      "el nombre de siempre se sigue reconociendo")
+
+_carpeta = tempfile.mkdtemp(prefix="_prueba_dos_mes_")
+for n in ("CLI020202CD2_FIC010101AB1_2026-07_aaaa1111.pdf",
+          "CLI020202CD2_FIC010101AB1_2026-07_bbbb2222.pdf"):
+    open(os.path.join(_carpeta, n), "wb").close()
+_lecturas = {
+    "aaaa1111": [{"rfc_estacion": "EST1", "clave_estacion": "1", "cantidad": 10.0, "importe": 200.0}],
+    "bbbb2222": [{"rfc_estacion": "EST1", "clave_estacion": "1", "cantidad": 5.0, "importe": 100.0},
+                 {"rfc_estacion": "EST2", "clave_estacion": "2", "cantidad": 1.0, "importe": 20.0}],
+}
+
+
+def _leer_falso(ruta):
+    cargos = _lecturas[os.path.splitext(ruta)[0][-8:]]
+    return {"encabezado": {"rfc_emisor": "FIC010101AB1", "rfc_receptor": "CLI020202CD2"},
+            "cargos": cargos, "resumen": {"subtotal": sum(c["importe"] for c in cargos)}}
+
+
+_leer_original = ecm.leer_pdf
+ecm.leer_pdf = _leer_falso
+try:
+    _rep = ecm.reporte_cliente("CLI020202CD2", _carpeta)
+finally:
+    ecm.leer_pdf = _leer_original
+_mes = _rep["meses"].get(("2026-07", "FIC010101AB1"), {})
+check(abs((_mes.get("subtotal") or 0) - 320.0) < 0.01,
+      "los dos archivos de julio se suman, no se pisa uno: %r" % _mes.get("subtotal"))
+check(_mes.get("por_estacion", {}).get(("EST1", "1"), {}).get("cargas") == 2,
+      "las cargas de la misma estación se acumulan entre archivos")
+check(("EST2", "2") in _mes.get("por_estacion", {}), "la estación que solo está en uno también aparece")
+
 reporte_sin_archivos = ecm.reporte_cliente("NADIE0000XXX", tempfile.mkdtemp(prefix="_prueba_vacia_"))
 check(reporte_sin_archivos == {"meses": {}, "sospechosos": []},
       "un cliente sin ningún archivo descargado regresa forma vacía, no truena: %r"

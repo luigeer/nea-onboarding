@@ -515,6 +515,25 @@ actualizada_vacia = estaciones_monedero.actualizar_con_reporte(REVISION_MES_SIN_
 check(actualizada_vacia["monederos"][0]["reporte"] == {},
       "sin ningún mes leído en Etapa 2, el reporte queda vacío, no inventa un mes con % en None")
 
+
+# ── archivos_unicos(): dos facturas del mismo mes no comparten nombre ──────
+# Con el mismo nombre, subir la segunda pisaba a la primera sin avisar, y el
+# front tronaba porque dos botones de subir tenían el mismo identificador.
+PLAN_DOS_EN_JULIO = [
+    {"mes": "2026-07", "folio_fiscal": "a444b879-07cc", "archivo_esperado": "CLI_EFE_2026-07.pdf"},
+    {"mes": "2026-07", "folio_fiscal": "1404b0cd-357b", "archivo_esperado": "CLI_EFE_2026-07.pdf"},
+    {"mes": "2026-08", "folio_fiscal": "4a8a6b50-61cd", "archivo_esperado": "CLI_EFE_2026-08.pdf"},
+]
+nombres = estaciones_monedero.archivos_unicos(PLAN_DOS_EN_JULIO)
+check(nombres[0] != nombres[1], "dos facturas de julio tienen nombres distintos: %r" % nombres[:2])
+check(nombres[0] == "CLI_EFE_2026-07_a444b879.pdf",
+      "el sufijo son los primeros 8 caracteres del folio fiscal: %r" % nombres[0])
+check(nombres[2] == "CLI_EFE_2026-08.pdf",
+      "un mes con una sola factura conserva el nombre de siempre: %r" % nombres[2])
+ya_con_sufijo = [dict(p, archivo_esperado=n) for p, n in zip(PLAN_DOS_EN_JULIO, nombres)]
+check(estaciones_monedero.archivos_unicos(ya_con_sufijo) == nombres,
+      "calcular el nombre otra vez no agrega el sufijo dos veces")
+
 print()
 if fallas:
     print("%d prueba(s) fallaron" % len(fallas))

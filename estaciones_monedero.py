@@ -144,6 +144,28 @@ def _fecha_ancla(entidad_id, hoy):
     return min(ancla, hoy)
 
 
+def archivos_unicos(plan):
+    """El nombre con el que se guarda cada factura del plan, sin repetidos.
+
+    Un mes con una sola factura conserva RFC_CLIENTE_RFC_MONEDERO_AAAA-MM.pdf.
+    Uno con dos o más (el cargo normal y una comisión aparte, por ejemplo)
+    agrega los primeros 8 caracteres del folio fiscal: con el mismo nombre, la
+    segunda pisaba a la primera al subirla. Se recalcula desde los tres
+    primeros pedazos, así que aplicarlo dos veces no duplica el sufijo.
+    """
+    por_mes = {}
+    for p in plan:
+        por_mes[p["mes"]] = por_mes.get(p["mes"], 0) + 1
+    nombres = []
+    for p in plan:
+        base, ext = os.path.splitext(p["archivo_esperado"])
+        base = "_".join(base.split("_")[:3])
+        if por_mes[p["mes"]] > 1:
+            base = "%s_%s" % (base, (p.get("folio_fiscal") or "")[:8])
+        nombres.append(base + ext)
+    return nombres
+
+
 def plan_descarga(clientes, hoy=None):
     """clientes: la salida de monederos.barrer_entidades_syntage() (ya con
     entidad_id en cada resultado). Devuelve (plan, sin_revisar):
@@ -256,6 +278,8 @@ def revisar_cliente(folio, hoy=None):
                             "folio_fiscal": factura["folio_fiscal"],
                             "archivo_esperado": "%s_%s_%s.pdf" % (rfc, h["rfc_monedero"], mes),
                         })
+                for p, nombre in zip(plan, archivos_unicos(plan)):
+                    p["archivo_esperado"] = nombre
                 for c in comision_candidatas(eid, h["rfc_monedero"]):
                     entrada = comision.setdefault(c["mes"], {"monto": 0.0, "folios_fiscales": []})
                     entrada["monto"] += c["monto"]

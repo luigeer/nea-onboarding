@@ -606,15 +606,23 @@ def _subir_descargas_monedero(folio, m, carpeta="descargas/monederos"):
     """
     import os
 
+    import estaciones_monedero as em
+
     os.makedirs(carpeta, exist_ok=True)
-    for p in m["plan_descarga"]:
-        base, _ = os.path.splitext(p["archivo_esperado"])
+    # Un mes puede traer dos facturas del mismo monedero: el nombre y el
+    # identificador del botón llevan el folio fiscal para no chocar (antes
+    # Streamlit tronaba con StreamlitDuplicateElementKey y, al guardar, la
+    # segunda pisaba a la primera).
+    nombres = em.archivos_unicos(m["plan_descarga"])
+    for p, nombre in zip(m["plan_descarga"], nombres):
+        base, _ = os.path.splitext(nombre)
         col1, col2, col3 = st.columns([2, 3, 3])
         col1.write(p["mes"])
         col2.caption(p["folio_fiscal"] or "")
         subido = col3.file_uploader(
-            p["archivo_esperado"], type=["pdf", "xml"],
-            key="subir_%s_%s_%s" % (folio, m["rfc_monedero"], p["mes"]),
+            nombre, type=["pdf", "xml"],
+            key="subir_%s_%s_%s_%s" % (folio, m["rfc_monedero"], p["mes"],
+                                       p.get("folio_fiscal") or ""),
             label_visibility="collapsed")
         if subido is not None:
             _, ext = os.path.splitext(subido.name)
