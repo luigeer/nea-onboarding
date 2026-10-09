@@ -89,6 +89,13 @@ def _exterior_interior(dom):
     return ext or inte
 
 
+def _notaria_ubicacion(con):
+    """'No. Notaría y Ubicación' del Anexo A de Grit: número y plaza, no solo el número."""
+    if not con.get("notaria"):
+        return None
+    return ", ".join(x for x in ("No. %s" % con["notaria"], con.get("plaza")) if x)
+
+
 def _domicilio_una_linea(dom):
     if not dom:
         return None
@@ -330,7 +337,7 @@ def para_grit_contrato(exp):
         "modelo_negocio": _MODELO_NEGOCIO_GRIT.get(gm.get("modelo_negocio")),
         "constitucion": None if es_pfae else {
             "no_escritura": con.get("instrumento"), "fecha": _fecha_corta(con.get("fecha")),
-            "notario": con.get("fedatario"), "notaria_ubicacion": con.get("notaria"),
+            "notario": con.get("fedatario"), "notaria_ubicacion": _notaria_ubicacion(con),
             "folio_rpc": con.get("inscripcion_rpc"),
             "fecha_inscripcion_rpc": _fecha_corta(con.get("fecha_inscripcion_rpc")),
         },
