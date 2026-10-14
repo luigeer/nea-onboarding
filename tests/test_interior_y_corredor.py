@@ -91,6 +91,54 @@ def test_el_pld_pm_lleva_exterior_e_interior():
           "(salió %r)" % d["num_ext"])
 
 
+def test_el_pld_pf_lleva_exterior_e_interior():
+    e = expediente_vacio()
+    e["tipo_cliente"] = "pfae"
+    e["representante_legal"]["validado"]["nombre"] = "JUAN PEREZ GARCIA"
+    e["cliente"]["validado"]["domicilio"] = dict(csf_con_interior()["domicilio"])
+    for clave in ("pld_pf", "grit_pld_pf"):
+        d = ADAPTADORES[clave](e)
+        check(d["num_ext"] == "630 INT. CUARTO PISO L-409",
+              "%s pone exterior e interior (salió %r)" % (clave, d["num_ext"]))
+
+
+def test_el_pld_pf_no_saca_el_interior_largo_de_la_hoja():
+    """Caso real (SIQUEIROS-01): '100 INT. PARQUE REFORMA D1601' se salía del
+    margen derecho y el último dígito quedaba fuera del papel."""
+    from generar_pld_pf import generar_pld_pf, MR
+    e = expediente_vacio()
+    e["tipo_cliente"] = "pfae"
+    e["fechas"]["operacion"] = "2026-10-14"
+    e["cliente"]["validado"].update({
+        "rfc": "PEPJ800101AB1", "actividad_economica": "Consultoría",
+        "telefono": "55 1234 5678", "correo": "juan@ejemplo.com",
+        "domicilio": {"calle": "AVENIDA (AV.) AV DE LOS POETAS", "num_ext": "100",
+                      "num_int": "PARQUE REFORMA D1601", "colonia": "SAN MATEO",
+                      "cp": "05600", "municipio": "CUAJIMALPA DE MORELOS",
+                      "estado": "CIUDAD DE MEXICO", "pais": "México"}})
+    e["representante_legal"]["validado"].update({
+        "nombre": "JUAN PEREZ GARCIA", "curp": "PEPJ800101HDFRRN09",
+        "rfc": "PEPJ800101AB1", "fecha_nacimiento": "1980-01-01",
+        "pais_nacimiento": "México", "pais_nacionalidad": "México",
+        "identificacion": {"tipo": "INE", "numero": "123", "autoridad_emisora": "INE",
+                           "pais_emisor": "México"}})
+    e["quien_lleno"] = "Prueba"
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "pld.pdf")
+        generar_pld_pf(ADAPTADORES["grit_pld_pf"](e), out)
+        with pdfplumber.open(out) as pdf:
+            pag = pdf.pages[0]
+            texto = pag.extract_text() or ""
+            etiqueta = next(w for w in pag.extract_words()
+                            if w["text"].startswith("Exterior/Interior"))
+            renglon = [ch for ch in pag.chars if abs(ch["top"] - etiqueta["top"]) < 2]
+            ancho = pag.width
+    check("PARQUE REFORMA D1601" in texto, "el interior completo aparece en el PLD")
+    check(max(ch["x1"] for ch in renglon) <= MR + 1,
+          "el número exterior/interior no rebasa el margen derecho (llega a %.0f, "
+          "margen %d, hoja %.0f)" % (max(ch["x1"] for ch in renglon), MR, ancho))
+
+
 def test_el_pld_sin_interior_queda_igual():
     e = expediente_pm()
     dom = dict(csf_con_interior()["domicilio"])
@@ -126,6 +174,8 @@ def test_el_bc_de_constitucion_por_corredor_dice_poliza_y_corredor():
 def main():
     test_el_expediente_conserva_el_numero_interior_de_la_csf()
     test_el_pld_pm_lleva_exterior_e_interior()
+    test_el_pld_pf_lleva_exterior_e_interior()
+    test_el_pld_pf_no_saca_el_interior_largo_de_la_hoja()
     test_el_pld_sin_interior_queda_igual()
     test_el_bc_de_constitucion_notarial_dice_escritura_y_notario()
     test_el_bc_de_constitucion_por_corredor_dice_poliza_y_corredor()

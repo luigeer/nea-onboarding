@@ -407,6 +407,10 @@ def _seccion_iv(D, S):
         ("Que ha puesto a disposición de cada una de dichas personas el Aviso de Privacidad de "
          "%s." % sujeto_obligado),
     ]
+    # Lo que el representante declara además, caso por caso: por ejemplo, que un
+    # socio persona moral extranjero no tiene accionistas con 25% o más. Va en
+    # la lista que firma, no en una nota aparte.
+    decls += [t for t in (D.get("declaraciones_adicionales") or []) if t]
     out = [_barra("IV. DECLARACIONES BAJO PROTESTA DE DECIR VERDAD", S), Spacer(1, 4)]
     out.append(Paragraph("El representante legal del cliente declara bajo protesta de decir "
                          "verdad:", S["cuerpo"]))
