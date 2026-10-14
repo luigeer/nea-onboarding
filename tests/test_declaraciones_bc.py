@@ -106,11 +106,23 @@ def test_sociedad_anonima_sigue_diciendo_acciones():
           "en una S.A. el formato sigue con Acciones / Accionista")
 
 
+def test_la_ficha_muestra_el_numero_de_identificacion():
+    """Los expedientes guardan identificacion.numero; el formato solo leía 'dato'
+    y el número no salía en ningún BC (TEAK-01, ASIAT-01, INTEGRA-01...)."""
+    e = expediente()
+    e["beneficiarios_controladores"][0]["identificacion"] = {
+        "tipo": "INE - Credencial para votar", "numero": "2519039700",
+        "vigencia": "31/12/2033"}
+    t = texto("grit_beneficiario_controlador", e)
+    check("2519039700" in t, "el número de la identificación aparece en el BC")
+
+
 def main():
     test_la_declaracion_adicional_sale_en_ambos_formatos()
     test_sin_declaracion_adicional_quedan_las_tres_fijas()
     test_srl_dice_partes_sociales_y_socios()
     test_sociedad_anonima_sigue_diciendo_acciones()
+    test_la_ficha_muestra_el_numero_de_identificacion()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))

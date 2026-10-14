@@ -203,6 +203,12 @@ def _completitud(exp, r, hoy):
         # ya no le toca mandarla aparte: pedírsela sería pedirla dos veces.
         if clave == "autorizacion_buro" and _get(exp, "flags.buro_en_paquete"):
             continue
+        # El buró es insumo del modelo de riesgo. Sin modelo que correr —una
+        # excepción de riesgo vigente, o un cliente que solo contrata el monedero
+        # de Grit Mobility— no hay consulta que autorizar.
+        if clave == "autorizacion_buro" and (excepcion_riesgo_vigente(exp)
+                                             or solo_grit_mobility_vigente(exp)):
+            continue
         if clave not in presentes:
             # Solo la inicial en minúscula: bajar todo destroza las siglas
             # ('credencial del sat').

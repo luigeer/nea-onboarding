@@ -247,9 +247,12 @@ def _ficha_beneficiario(b, i, S, srl=False):
     ident = b.get("identificacion", {})
     id_txt = None
     if ident:
+        # Los expedientes guardan el número como 'numero'; 'dato' es el nombre
+        # viejo. Sin este respaldo el número no salía en ningún formato.
+        dato = ident.get("dato") or ident.get("numero")
         id_txt = "%s%s%s" % (
             ident.get("tipo", ""),
-            (", %s %s" % (ident.get("dato_nombre", "número"), ident["dato"])) if ident.get("dato") else "",
+            (", %s %s" % (ident.get("dato_nombre", "número"), dato)) if dato else "",
             (" — Vigencia: %s" % ident["vigencia"]) if ident.get("vigencia") else "")
 
     part = b.get("participacion", {})

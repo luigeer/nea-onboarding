@@ -140,6 +140,32 @@ def test_el_validador_no_pide_estados_de_cuenta_con_solo_grit():
     check(not pide, "con solo Grit vigente, el validador no pide estados de cuenta")
 
 
+def _pide_buro(exp):
+    import validador
+    return any("buró" in h["asunto"] for h in validador.revisar(exp).hallazgos)
+
+
+def test_sin_modelo_de_riesgo_no_se_pide_autorizacion_de_buro():
+    """Caso real (TEAK-01): ya es cliente de Grit Payment y solo contrata el
+    monedero; no hay modelo que alimentar, así que tampoco buró que consultar."""
+    check(not _pide_buro(moral_solo_grit()),
+          "con solo Grit vigente, el validador no pide autorización de buró")
+    check(not _pide_buro(pfae_solo_grit()),
+          "PFAE con solo Grit vigente: tampoco pide autorización de buró")
+    con_excepcion = moral_solo_grit()
+    con_excepcion.pop("solo_grit_mobility")
+    con_excepcion["credito"]["autorizada"].update({"linea": 50000.0, "autorizada_por": "Luis"})
+    con_excepcion["credito"]["excepcion_riesgo"] = {
+        "motivo": "socio_comercial", "justificacion": "Socio comercial; sin análisis financiero.",
+        "autorizada_por": "Luis Gomez", "fecha": "2026-10-14"}
+    check(not _pide_buro(con_excepcion),
+          "con excepción de riesgo vigente, el validador no pide autorización de buró")
+    normal = moral_solo_grit()
+    normal.pop("solo_grit_mobility")
+    check(_pide_buro(normal),
+          "sin excepción y con crédito, el validador sigue pidiendo autorización de buró")
+
+
 def main():
     test_persona_moral_solo_lleva_documentos_de_grit_mobility()
     test_pfae_solo_lleva_contrato_y_pld_de_grit_mobility()
@@ -150,6 +176,7 @@ def main():
     test_solo_grit_incompleto_no_quita_nada_y_se_reporta()
     test_solo_y_sin_grit_a_la_vez_es_contradiccion()
     test_el_validador_no_pide_estados_de_cuenta_con_solo_grit()
+    test_sin_modelo_de_riesgo_no_se_pide_autorizacion_de_buro()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))
