@@ -198,6 +198,11 @@ def _encabezado(D, S):
     return out
 
 
+def _es_srl(D):
+    """Una S. de R.L. no tiene acciones ni accionistas: tiene partes sociales y socios."""
+    return "RESPONSABILIDAD LIMITADA" in (D.get("cliente", {}).get("regimen_capital") or "").upper()
+
+
 def _seccion_i(D, S):
     cl = D["cliente"]
     ins = cl.get("instrumento", {})
@@ -232,13 +237,13 @@ def _seccion_i(D, S):
         ("Régimen fiscal", cl.get("regimen_fiscal")),
         ("Inicio de operaciones", cl.get("inicio_operaciones")),
         ("*Capital social", _fmt_moneda(cl.get("capital_social"))),
-        ("*Acciones", cl.get("acciones")),
+        ("*Partes sociales" if _es_srl(D) else "*Acciones", cl.get("acciones")),
     ]
     return [_barra("I. DATOS GENERALES DE LA PERSONA MORAL (CLIENTE)", S),
             Spacer(1, 4), _campos(pares, S), Spacer(1, 8)]
 
 
-def _ficha_beneficiario(b, i, S):
+def _ficha_beneficiario(b, i, S, srl=False):
     ident = b.get("identificacion", {})
     id_txt = None
     if ident:
@@ -276,7 +281,8 @@ def _ficha_beneficiario(b, i, S):
         ("*Domicilio", b.get("domicilio")),
         ("*Identificación oficial", id_txt),
         ("*Participación", part_txt),
-        ("*Desglose de acciones", b.get("desglose_acciones")),
+        ("*Desglose de partes sociales" if srl else "*Desglose de acciones",
+         b.get("desglose_acciones")),
         ("*Criterio de determinación", b.get("criterio_determinacion")),
         ("*Cadena de control", cadena),
         ("Forma de participación", b.get("forma_participacion")),
@@ -305,7 +311,7 @@ def _seccion_ii(D, S):
     out += lineas
     out.append(Spacer(1, 4))
     for i, b in enumerate(D.get("beneficiarios", []), start=1):
-        out.append(_ficha_beneficiario(b, i, S))
+        out.append(_ficha_beneficiario(b, i, S, _es_srl(D)))
     return out
 
 
@@ -327,10 +333,12 @@ def _nombres_apoderados(apoderados):
 
 
 def _seccion_iii(D, S):
-    out = [_barra("III. ESTRUCTURA ACCIONARIA Y ÓRGANO DE ADMINISTRACIÓN", S), Spacer(1, 4)]
+    srl = _es_srl(D)
+    out = [_barra("III. ESTRUCTURA %s Y ÓRGANO DE ADMINISTRACIÓN"
+                  % ("DE CAPITAL" if srl else "ACCIONARIA"), S), Spacer(1, 4)]
 
-    filas = [[Paragraph("<b>Accionista</b>", S["cuerpo"]),
-              Paragraph("<b>Acciones</b>", S["cuerpo"]),
+    filas = [[Paragraph("<b>%s</b>" % ("Socio" if srl else "Accionista"), S["cuerpo"]),
+              Paragraph("<b>%s</b>" % ("Partes sociales" if srl else "Acciones"), S["cuerpo"]),
               Paragraph("<b>Importe</b>", S["cuerpo"]),
               Paragraph("<b>%</b>", S["cuerpo"])]]
     tot_acc = tot_imp = tot_pct = 0.0
@@ -371,8 +379,9 @@ def _seccion_iii(D, S):
     # Si la tabla no cierra en 100%, se asienta la brecha de forma expresa.
     if numerico and filas[1:] and abs(tot_pct - 100.0) > 0.01:
         brecha = round(100.0 - tot_pct, 2)
-        nota = ("La estructura accionaria documentada suma %s. Existe una diferencia de %s "
-                "sin identificar." % (_fmt_pct(tot_pct), _fmt_pct(brecha)))
+        nota = ("La estructura %s documentada suma %s. Existe una diferencia de %s "
+                "sin identificar." % ("de capital" if srl else "accionaria",
+                                      _fmt_pct(tot_pct), _fmt_pct(brecha)))
         if brecha >= 25.0:
             nota += (" Por ser igual o mayor al umbral de 25%, se adjunta el Anexo de Análisis "
                      "Razonado en términos del Manual de Prevención de Lavado de Dinero.")

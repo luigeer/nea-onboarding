@@ -75,9 +75,42 @@ def test_sin_declaracion_adicional_quedan_las_tres_fijas():
           "sin adicionales, el apartado IV tiene solo las tres declaraciones fijas")
 
 
+def test_srl_dice_partes_sociales_y_socios():
+    """Caso real (TEAK-01): una S. de R.L. no tiene acciones sino partes sociales."""
+    e = expediente()
+    e["cliente"]["validado"]["regimen_capital"] =         "SOCIEDAD DE RESPONSABILIDAD LIMITADA DE CAPITAL VARIABLE"
+    e["constitucion"]["acciones"] = 2
+    e["beneficiarios_controladores"][0]["desglose_acciones"] = "1 parte social de 2"
+    e["estructura_accionaria"] = [
+        {"accionista": "SOCIO UNO", "acciones": 1, "importe": 24750.0, "porcentaje": 99.0},
+        {"accionista": "SOCIO DOS", "acciones": 1, "importe": 250.0, "porcentaje": 1.0}]
+    for clave in ("beneficiario_controlador", "grit_beneficiario_controlador"):
+        t = texto(clave, e)
+        check("Partes sociales: 2" in t, "%s: 'Partes sociales: 2' en el apartado I" % clave)
+        check("Desglose de partes sociales" in t, "%s: 'Desglose de partes sociales'" % clave)
+        check("Socio Partes sociales" in t, "%s: la tabla dice Socio / Partes sociales" % clave)
+        check("ESTRUCTURA DE CAPITAL" in t, "%s: el apartado III no dice 'accionaria'" % clave)
+        check("Acciones" not in t and "Accionista" not in t and "ACCIONARIA" not in t,
+              "%s: no quedan 'Acciones', 'Accionista' ni 'ACCIONARIA'" % clave)
+
+
+def test_sociedad_anonima_sigue_diciendo_acciones():
+    e = expediente()
+    e["cliente"]["validado"]["regimen_capital"] = "SOCIEDAD ANONIMA DE CAPITAL VARIABLE"
+    e["constitucion"]["acciones"] = 50000
+    e["estructura_accionaria"] = [{"accionista": "X", "acciones": 50000,
+                                   "importe": 50000.0, "porcentaje": 100.0}]
+    t = texto("beneficiario_controlador", e)
+    check("Acciones: 50000" in t and "Accionista Acciones" in t
+          and "ESTRUCTURA ACCIONARIA" in t,
+          "en una S.A. el formato sigue con Acciones / Accionista")
+
+
 def main():
     test_la_declaracion_adicional_sale_en_ambos_formatos()
     test_sin_declaracion_adicional_quedan_las_tres_fijas()
+    test_srl_dice_partes_sociales_y_socios()
+    test_sociedad_anonima_sigue_diciendo_acciones()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))

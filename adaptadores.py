@@ -273,6 +273,7 @@ def para_beneficiario(exp):
             "inicio_operaciones": _fecha_corta(val.get("inicio_operaciones")),
             "capital_social": con.get("capital_social"),
             "acciones": con.get("acciones"),
+            "regimen_capital": val.get("regimen_capital"),
         },
         "beneficiarios": _get(exp, "beneficiarios_controladores", []),
         "estructura_accionaria": _get(exp, "estructura_accionaria", []),
