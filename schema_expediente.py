@@ -298,6 +298,29 @@ def _revisar_sin_grit_mobility(exp):
     return not fallas, fallas
 
 
+def _revisar_solo_grit_mobility(exp):
+    """(vigente, fallas) del paquete que lleva únicamente Grit Mobility.
+
+    Es el espejo de `sin_grit_mobility`: un cliente que solo contrata el
+    monedero de combustible, sin línea de crédito de Nea. Cuenta solo con
+    justificación escrita y nombre de quien lo decidió.
+    """
+    sg = _get(exp, "solo_grit_mobility")
+    if not sg:
+        return False, []
+    fallas = []
+    if not _informado(sg.get("justificacion")):
+        fallas.append("Paquete de solo Grit Mobility sin justificación escrita.")
+    if not _informado(sg.get("decidido_por")):
+        fallas.append("Paquete de solo Grit Mobility sin nombre de quién lo decidió.")
+    return not fallas, fallas
+
+
+def solo_grit_mobility_vigente(exp):
+    """True si el cliente solo firma Grit Mobility, con la decisión completa."""
+    return _revisar_solo_grit_mobility(exp)[0]
+
+
 def compuertas_generacion(exp):
     """Evalúa las condiciones que deben cumplirse antes de generar documentos.
 
@@ -315,12 +338,20 @@ def compuertas_generacion(exp):
         if not sin_grit:
             fallas.extend(compuertas_grit(exp))
 
+    solo_grit, fallas_solo = _revisar_solo_grit_mobility(exp)
+    fallas.extend(fallas_solo)
+    if _get(exp, "solo_grit_mobility") and _get(exp, "sin_grit_mobility"):
+        fallas.append("El expediente dice a la vez solo Grit Mobility y sin Grit "
+                      "Mobility: es una contradicción, hay que quitar una de las dos.")
+
     excepcion, fallas_exc = _revisar_excepcion_riesgo(exp)
     fallas.extend(fallas_exc)
 
     # ── línea autorizada, no solicitada ─────────────────────────────────────
-    linea = _get(exp, "credito.autorizada.linea")
-    if not linea:
+    # Solo Grit Mobility no tiene crédito: no hay línea, ni estados de cuenta
+    # contra ella, ni pagarés que el representante tenga que poder suscribir.
+    linea = None if solo_grit else _get(exp, "credito.autorizada.linea")
+    if not linea and not solo_grit:
         fallas.append("Sin línea autorizada. La cotización no es evidencia de línea; "
                       "riesgo debe autorizar o rechazar antes de generar.")
 
@@ -332,10 +363,11 @@ def compuertas_generacion(exp):
         fac = _get(exp, "representante_legal.validado.facultades", {})
         if not _get(exp, "representante_legal.validado.nombre"):
             fallas.append("Representante legal sin validar (etapa 2).")
-        if fac.get("titulos_credito") is not True:
+        if fac.get("titulos_credito") is not True and not solo_grit:
             fallas.append("El representante validado no tiene facultad para suscribir "
                           "títulos de crédito.")
-        if fac.get("individual") is not True and not _get(exp, "cofirmantes"):
+        if (fac.get("individual") is not True and not _get(exp, "cofirmantes")
+                and not solo_grit):
             fallas.append("El poder es mancomunado y no hay cofirmantes con "
                           "identificación en el expediente.")
         limite = fac.get("limite_monto")
@@ -456,6 +488,18 @@ def compuertas_generacion(exp):
 def documentos_aplicables(exp):
     """Lista de claves de documento que corresponden a este expediente."""
     tipo = _get(exp, "tipo_cliente")
+
+    # Solo Grit Mobility: el monedero sin crédito. Sin carátula, PLD ni BC de
+    # Grit Payment, y sin nada que cuelgue del crédito (adenda de obligado
+    # solidario, buró, domiciliación). Tampoco el anexo razonado, que va
+    # dirigido a Grit Payment; el BC de Grit Mobility ya lleva la determinación.
+    if solo_grit_mobility_vigente(exp):
+        if tipo == "persona_moral":
+            docs = ["grit_contrato", "grit_pld_pm"]
+            if _get(exp, "beneficiarios_controladores"):
+                docs.append("grit_beneficiario_controlador")
+            return docs
+        return ["grit_contrato", "grit_pld_pf"]
     docs = ["contrato" if tipo == "persona_moral" else "contrato_pfae"]
 
     # A partir de septiembre 2026, todo cliente firma también su PLD, su
