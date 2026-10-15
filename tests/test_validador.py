@@ -99,6 +99,14 @@ check(any("estados de cuenta" in h["asunto"] for h in r.por_gravedad(INTERMEDIA)
 check(len([h for h in r.hallazgos if h["tipo"] == "estados_cuenta"]) == 1,
       "y se pide en un solo renglón, no en dos")
 
+# Misma regla que compuertas_generacion: una línea autorizada sin correr el
+# modelo no tiene modelo al que alimentar, así que no se piden estados de cuenta.
+e = completo(cuentas_bancarias=[])
+e["credito"]["autorizada"] = {"linea": 150000.0, "sin_modelo": True}
+r = revisar(e, hoy=HOY, cobertura=COBERTURA_LLENA)
+check(not [h for h in r.hallazgos if h["tipo"] == "estados_cuenta"],
+      "una línea autorizada sin modelo no le pide estados de cuenta al cliente")
+
 # La cotización firmada nunca se exige: decisión de negocio, no hay hallazgo
 # que pedirla ni en riesgo ni en generación.
 e = completo()

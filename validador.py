@@ -231,9 +231,13 @@ def _completitud(exp, r, hoy):
             faltan_meses.append(cursor.strftime("%Y-%m"))
             cursor = _mas_meses(cursor, 1)
 
+    # Una línea autorizada sin correr el modelo no tiene modelo al que alimentar:
+    # pedirlos sería una solicitud de más (misma regla que compuertas_generacion).
+    sin_modelo = _get(exp, "credito.autorizada.sin_modelo")
+
     # Un solo renglón: pedir "faltan N" y además "el más reciente" son la misma
     # petición vista de dos formas, y al cliente le llegan como dos pendientes.
-    if periodos < requeridos or faltan_meses:
+    if not sin_modelo and (periodos < requeridos or faltan_meses):
         MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
                  "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
         def bonito(p):
