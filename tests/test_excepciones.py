@@ -167,4 +167,45 @@ check(not pide_estados(socio),
 check(pide_estados(sin_nombre),
       "con excepción incompleta, el validador los sigue pidiendo")
 
+
+# ── Sin modelo no se piden sus insumos ───────────────────────────────────────
+# Buró PYME, declaración anual, credencial del SAT, perfil y estados procesados
+# existen para alimentar el modelo de riesgo. Una línea que no pasa por él —por
+# excepción vigente, porque se autorizó sin modelo, o porque solo es monedero de
+# Grit Mobility— no tiene a qué alimentar: pedírselos al cliente es una vuelta
+# de más que ventas reenvía tal cual.
+COBERTURA_VACIA = {"estados_cuenta": 0, "estados_reconciliados": 0,
+                   "consultas_buro": 0, "ejercicios_fiscales": 0,
+                   "credencial_sat_vigente": False, "perfil_completo": False,
+                   "estados_requeridos": 3}
+
+
+def insumos(exp):
+    return [h for h in validador.revisar(exp, cobertura=COBERTURA_VACIA).hallazgos
+            if h.get("tipo") == "insumo_modelo"]
+
+
+def pide(exp, texto):
+    return any(texto in (h.get("pedir") or "") for h in insumos(exp))
+
+
+check(pide(moral_lista(), "buró PYME") and pide(moral_lista(), "Declaración anual"),
+      "sin excepción, se piden buró y declaración anual")
+check(insumos(socio) == [],
+      "con excepción vigente, no se pide ningún insumo del modelo: %r"
+      % [h["asunto"] for h in insumos(socio)])
+sin_modelo = moral_lista()
+sin_modelo["credito"]["autorizada"]["sin_modelo"] = True
+check(insumos(sin_modelo) == [],
+      "con línea autorizada sin modelo, no se pide ningún insumo del modelo: %r"
+      % [h["asunto"] for h in insumos(sin_modelo)])
+solo_grit = moral_lista()
+solo_grit["solo_grit_mobility"] = {"justificacion": "Solo contrata el monedero.",
+                                   "decidido_por": "Luis Gomez", "fecha": "2026-10-14"}
+check(insumos(solo_grit) == [],
+      "con solo Grit Mobility, no se pide ningún insumo del modelo: %r"
+      % [h["asunto"] for h in insumos(solo_grit)])
+check(insumos(sin_nombre) != [],
+      "con excepción incompleta, los insumos se siguen pidiendo")
+
 print("\nTodas las pruebas de excepciones pasaron.")

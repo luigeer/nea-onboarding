@@ -572,8 +572,15 @@ def _insumos_modelo(exp, r, cobertura):
     Un score calculado sobre módulos ausentes no es un score bajo, es un score
     que no significa nada. Por eso estos faltantes detienen riesgo aunque el
     resto del expediente esté impecable.
+
+    Sin modelo que correr —excepción de riesgo vigente, línea autorizada sin
+    modelo, o solo el monedero de Grit Mobility— no hay a qué alimentar, y
+    pedirle estos insumos al cliente sería una vuelta de más.
     """
     if not cobertura:
+        return
+    if (_get(exp, "credito.autorizada.sin_modelo") or excepcion_riesgo_vigente(exp)
+            or solo_grit_mobility_vigente(exp)):
         return
 
     if not cobertura.get("consultas_buro"):
