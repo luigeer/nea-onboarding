@@ -53,6 +53,7 @@ REGIMENES_FISCALES = {
     "regimen simplificado de confianza": "626 Régimen Simplificado de Confianza",
     "opcional para grupos de sociedades": "623 Opcional para Grupos de Sociedades",
     "coordinados": "624 Coordinados",
+    "regimen de los coordinados": "624 Coordinados",   # así lo escribe la CSF
     "actividades agricolas, ganaderas, silvicolas y pesqueras":
         "622 Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras",
 }

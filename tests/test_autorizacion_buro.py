@@ -132,6 +132,15 @@ def test_no_se_genera_si_el_cliente_ya_entrego_una():
           "sin autorización entregada se genera")
 
 
+def test_la_marca_buro_en_paquete_no_la_duplica():
+    # La marca viene de cuando la autorización no salía sola en persona moral.
+    # Ahora sale sola: con la marca puesta, el cliente firmaría dos veces lo mismo.
+    e = expediente()
+    e["flags"]["buro_en_paquete"] = True
+    n = documentos_aplicables(e).count("autorizacion_buro")
+    check(n == 1, "Con buro_en_paquete la autorización sale %d veces, no 1" % n)
+
+
 def test_solo_firma_el_representante_legal():
     f = _firmantes("autorizacion_buro", expediente())
     check([x["rol"] for x in f] == ["cliente"],
@@ -169,6 +178,7 @@ def main():
     test_un_dato_faltante_se_avisa_como_campo_en_blanco()
     test_sale_en_persona_moral_y_no_en_persona_fisica()
     test_no_se_genera_si_el_cliente_ya_entrego_una()
+    test_la_marca_buro_en_paquete_no_la_duplica()
     test_solo_firma_el_representante_legal()
     test_va_en_su_propia_division_de_weetrust()
     test_el_verificador_la_revisa()

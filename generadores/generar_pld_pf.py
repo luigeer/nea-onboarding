@@ -87,8 +87,14 @@ def campo(c, y, etiqueta, valor, dx=None, hasta=MR, x=ML):
     sf(c, 7.5)
     c.drawString(x, y, etiqueta)
     off = dx if dx is not None else c.stringWidth(etiqueta, "Helvetica", 7.5) + 4
-    sf(c, 8, bold=True)
-    c.drawString(x + off, y, str(valor) if valor is not None else "")
+    texto = str(valor) if valor is not None else ""
+    # Un valor largo (un número interior como "PARQUE REFORMA D1601") se salía
+    # de la hoja. Se reduce la letra hasta que quepa antes de 'hasta'.
+    tam = 8
+    while tam > 5 and c.stringWidth(texto, "Helvetica-Bold", tam) > hasta - (x + off):
+        tam -= 0.5
+    sf(c, tam, bold=True)
+    c.drawString(x + off, y, texto)
     sf(c, 7.5)
     line(c, x, y - 2, hasta)
 
@@ -205,8 +211,8 @@ def page1(c, D):
     sf(c, 7.5, bold=True)
     c.drawString(ML, y, "DOMICILIO PARTICULAR")
     y -= 13
-    campo(c, y, "Calle:", D["calle"], hasta=400)
-    campo(c, y, "No. Exterior/Interior:", D["num_ext"], hasta=MR, x=410)
+    campo(c, y, "Calle:", D["calle"], hasta=330)
+    campo(c, y, "No. Exterior/Interior:", D["num_ext"], hasta=MR, x=340)
     y -= 14
     campo(c, y, "Colonia:", D["colonia"], hasta=400)
     campo(c, y, "C.P.:", D["cp"], hasta=MR, x=410)

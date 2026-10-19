@@ -114,12 +114,31 @@ def test_beneficiario_de_nea_sin_excepcion_usa_al_oficial_de_grit_payment():
           "y el de Grit Mobility sigue llevando a Luis")
 
 
+def test_anexo_a_lleva_numero_y_ubicacion_de_la_notaria():
+    exp = persona_moral()
+    exp["constitucion"].update({"notaria": "231", "plaza": "Ciudad de México"})
+    con = ADAPTADORES["grit_contrato"](exp)["constitucion"]
+    check(con["notaria_ubicacion"] == "No. 231, Ciudad de México",
+          "el Anexo A dice número y ubicación de la notaría (salió %r)"
+          % con["notaria_ubicacion"])
+
+
+def test_anexo_a_sin_plaza_lleva_solo_el_numero():
+    exp = persona_moral()
+    exp["constitucion"].update({"notaria": "231", "plaza": None})
+    con = ADAPTADORES["grit_contrato"](exp)["constitucion"]
+    check(con["notaria_ubicacion"] == "No. 231",
+          "sin plaza, el Anexo A lleva solo el número (salió %r)" % con["notaria_ubicacion"])
+
+
 def main():
     test_grit_pld_pm_usa_el_mismo_cliente_con_sujeto_obligado_de_grit()
     test_grit_pld_pf_usa_el_mismo_cliente_con_sujeto_obligado_de_grit()
     test_grit_contrato_traduce_cliente_y_condiciones_comerciales()
     test_grit_beneficiario_usa_el_mismo_cliente_con_responsable_de_grit()
     test_beneficiario_de_nea_sin_excepcion_usa_al_oficial_de_grit_payment()
+    test_anexo_a_lleva_numero_y_ubicacion_de_la_notaria()
+    test_anexo_a_sin_plaza_lleva_solo_el_numero()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))

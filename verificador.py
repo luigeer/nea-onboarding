@@ -108,7 +108,13 @@ def casillas_de_identificacion(ruta):
                     continue
                 marcadas = set()
                 for w in fila:
-                    clave = _ETIQUETA_ID.get(w["text"])
+                    # Una casilla muy pegada a su etiqueta sale fundida con ella:
+                    # "PROFESIONALX" es la etiqueta de cédula con su X marcada.
+                    base = w["text"].rstrip("X")
+                    clave = _ETIQUETA_ID.get(base)
+                    if clave and base != w["text"]:
+                        marcadas.add(clave)
+                        continue
                     if clave and any(ch["text"] == "X" and abs(ch["top"] - w["top"]) < 4
                                      and w["x1"] < ch["x0"] < w["x1"] + 20
                                      for ch in page.chars):

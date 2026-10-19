@@ -90,6 +90,21 @@ def _apellidos_primero(nombre):
     return " ".join(partes[-2:] + partes[:-2]).upper()
 
 
+def _exterior_interior(dom):
+    """'No. Exterior/Interior' del PLD: el interior de la CSF no se pierde."""
+    ext, inte = dom.get("num_ext"), dom.get("num_int")
+    if ext and inte:
+        return "%s INT. %s" % (ext, inte)
+    return ext or inte
+
+
+def _notaria_ubicacion(con):
+    """'No. Notaría y Ubicación' del Anexo A de Grit: número y plaza, no solo el número."""
+    if not con.get("notaria"):
+        return None
+    return ", ".join(x for x in ("No. %s" % con["notaria"], con.get("plaza")) if x)
+
+
 def _domicilio_una_linea(dom):
     if not dom:
         return None
@@ -256,7 +271,8 @@ def para_beneficiario(exp):
             "instrumento": {"numero": con.get("instrumento"), "libro": con.get("libro"),
                             "fecha": _fecha_corta(con.get("fecha"))},
             "fedatario": {"nombre": con.get("fedatario"), "numero": con.get("notaria"),
-                          "plaza": con.get("plaza")},
+                          "plaza": con.get("plaza"),
+                          "tipo": con.get("tipo_fedatario") or "notario"},
             "cud_economia": con.get("cud_economia"),
             "domicilio_fiscal": val.get("domicilio_fiscal") or _domicilio_una_linea(
                 val.get("domicilio")),
@@ -267,6 +283,7 @@ def para_beneficiario(exp):
             "inicio_operaciones": _fecha_corta(val.get("inicio_operaciones")),
             "capital_social": con.get("capital_social"),
             "acciones": con.get("acciones"),
+            "regimen_capital": val.get("regimen_capital"),
         },
         # El domicilio llega como texto o por campos, según quién capturó el
         # expediente. El formato imprime lo que recibe: por campos salía crudo.
@@ -275,6 +292,7 @@ def para_beneficiario(exp):
                           for b in _get(exp, "beneficiarios_controladores", [])],
         "estructura_accionaria": _get(exp, "estructura_accionaria", []),
         "organo_administracion": _get(exp, "organo_administracion", {}),
+        "declaraciones_adicionales": _get(exp, "bc_declaraciones_adicionales", []),
         "firmante_cliente": {"nombre": rep.get("nombre"),
                              "cargo": rep.get("cargo") or "Representante Legal"},
         "responsable_cumplimiento": resp if resp.get("nombre") else NEA_RESPONSABLE_CUMPLIMIENTO,
@@ -335,7 +353,7 @@ def para_grit_contrato(exp):
         "modelo_negocio": _MODELO_NEGOCIO_GRIT.get(gm.get("modelo_negocio")),
         "constitucion": None if es_pfae else {
             "no_escritura": con.get("instrumento"), "fecha": _fecha_corta(con.get("fecha")),
-            "notario": con.get("fedatario"), "notaria_ubicacion": con.get("notaria"),
+            "notario": con.get("fedatario"), "notaria_ubicacion": _notaria_ubicacion(con),
             "folio_rpc": con.get("inscripcion_rpc"),
             "fecha_inscripcion_rpc": _fecha_corta(con.get("fecha_inscripcion_rpc")),
         },

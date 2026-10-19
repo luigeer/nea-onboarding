@@ -198,20 +198,29 @@ def _encabezado(D, S):
     return out
 
 
+def _es_srl(D):
+    """Una S. de R.L. no tiene acciones ni accionistas: tiene partes sociales y socios."""
+    return "RESPONSABILIDAD LIMITADA" in (D.get("cliente", {}).get("regimen_capital") or "").upper()
+
+
 def _seccion_i(D, S):
     cl = D["cliente"]
     ins = cl.get("instrumento", {})
     fed = cl.get("fedatario", {})
+    # Una sociedad puede constituirse por póliza ante corredor público en vez de
+    # por escritura ante notario; el formato nombra lo que de verdad es.
+    corredor = fed.get("tipo") == "corredor"
     instrumento = None
     if ins:
-        instrumento = "Escritura Pública No. %s%s, de fecha %s" % (
+        instrumento = "%s No. %s%s, de fecha %s" % (
+            "Póliza" if corredor else "Escritura Pública",
             ins.get("numero", ""),
             (", Libro %s" % ins["libro"]) if ins.get("libro") else "",
             ins.get("fecha", ""))
     fedatario = None
     if fed:
-        fedatario = "%s, Notario Público No. %s%s" % (
-            fed.get("nombre", ""), fed.get("numero", ""),
+        fedatario = "%s, %s Público No. %s%s" % (
+            fed.get("nombre", ""), "Corredor" if corredor else "Notario", fed.get("numero", ""),
             (" de %s" % fed["plaza"]) if fed.get("plaza") else "")
 
     pares = [
@@ -228,19 +237,22 @@ def _seccion_i(D, S):
         ("Régimen fiscal", cl.get("regimen_fiscal")),
         ("Inicio de operaciones", cl.get("inicio_operaciones")),
         ("*Capital social", _fmt_moneda(cl.get("capital_social"))),
-        ("*Acciones", cl.get("acciones")),
+        ("*Partes sociales" if _es_srl(D) else "*Acciones", cl.get("acciones")),
     ]
     return [_barra("I. DATOS GENERALES DE LA PERSONA MORAL (CLIENTE)", S),
             Spacer(1, 4), _campos(pares, S), Spacer(1, 8)]
 
 
-def _ficha_beneficiario(b, i, S):
+def _ficha_beneficiario(b, i, S, srl=False):
     ident = b.get("identificacion", {})
     id_txt = None
     if ident:
+        # Los expedientes guardan el número como 'numero'; 'dato' es el nombre
+        # viejo. Sin este respaldo el número no salía en ningún formato.
+        dato = ident.get("dato") or ident.get("numero")
         id_txt = "%s%s%s" % (
             ident.get("tipo", ""),
-            (", %s %s" % (ident.get("dato_nombre", "número"), ident["dato"])) if ident.get("dato") else "",
+            (", %s %s" % (ident.get("dato_nombre", "número"), dato)) if dato else "",
             (" — Vigencia: %s" % ident["vigencia"]) if ident.get("vigencia") else "")
 
     part = b.get("participacion", {})
@@ -272,7 +284,8 @@ def _ficha_beneficiario(b, i, S):
         ("*Domicilio", b.get("domicilio")),
         ("*Identificación oficial", id_txt),
         ("*Participación", part_txt),
-        ("*Desglose de acciones", b.get("desglose_acciones")),
+        ("*Desglose de partes sociales" if srl else "*Desglose de acciones",
+         b.get("desglose_acciones")),
         ("*Criterio de determinación", b.get("criterio_determinacion")),
         ("*Cadena de control", cadena),
         ("Forma de participación", b.get("forma_participacion")),
@@ -301,7 +314,7 @@ def _seccion_ii(D, S):
     out += lineas
     out.append(Spacer(1, 4))
     for i, b in enumerate(D.get("beneficiarios", []), start=1):
-        out.append(_ficha_beneficiario(b, i, S))
+        out.append(_ficha_beneficiario(b, i, S, _es_srl(D)))
     return out
 
 
@@ -323,10 +336,12 @@ def _nombres_apoderados(apoderados):
 
 
 def _seccion_iii(D, S):
-    out = [_barra("III. ESTRUCTURA ACCIONARIA Y ÓRGANO DE ADMINISTRACIÓN", S), Spacer(1, 4)]
+    srl = _es_srl(D)
+    out = [_barra("III. ESTRUCTURA %s Y ÓRGANO DE ADMINISTRACIÓN"
+                  % ("DE CAPITAL" if srl else "ACCIONARIA"), S), Spacer(1, 4)]
 
-    filas = [[Paragraph("<b>Accionista</b>", S["cuerpo"]),
-              Paragraph("<b>Acciones</b>", S["cuerpo"]),
+    filas = [[Paragraph("<b>%s</b>" % ("Socio" if srl else "Accionista"), S["cuerpo"]),
+              Paragraph("<b>%s</b>" % ("Partes sociales" if srl else "Acciones"), S["cuerpo"]),
               Paragraph("<b>Importe</b>", S["cuerpo"]),
               Paragraph("<b>%</b>", S["cuerpo"])]]
     tot_acc = tot_imp = tot_pct = 0.0
@@ -367,8 +382,9 @@ def _seccion_iii(D, S):
     # Si la tabla no cierra en 100%, se asienta la brecha de forma expresa.
     if numerico and filas[1:] and abs(tot_pct - 100.0) > 0.01:
         brecha = round(100.0 - tot_pct, 2)
-        nota = ("La estructura accionaria documentada suma %s. Existe una diferencia de %s "
-                "sin identificar." % (_fmt_pct(tot_pct), _fmt_pct(brecha)))
+        nota = ("La estructura %s documentada suma %s. Existe una diferencia de %s "
+                "sin identificar." % ("de capital" if srl else "accionaria",
+                                      _fmt_pct(tot_pct), _fmt_pct(brecha)))
         if brecha >= 25.0:
             nota += (" Por ser igual o mayor al umbral de 25%, se adjunta el Anexo de Análisis "
                      "Razonado en términos del Manual de Prevención de Lavado de Dinero.")
@@ -403,6 +419,10 @@ def _seccion_iv(D, S):
         ("Que ha puesto a disposición de cada una de dichas personas el Aviso de Privacidad de "
          "%s." % sujeto_obligado),
     ]
+    # Lo que el representante declara además, caso por caso: por ejemplo, que un
+    # socio persona moral extranjero no tiene accionistas con 25% o más. Va en
+    # la lista que firma, no en una nota aparte.
+    decls += [t for t in (D.get("declaraciones_adicionales") or []) if t]
     out = [_barra("IV. DECLARACIONES BAJO PROTESTA DE DECIR VERDAD", S), Spacer(1, 4)]
     out.append(Paragraph("El representante legal del cliente declara bajo protesta de decir "
                          "verdad:", S["cuerpo"]))

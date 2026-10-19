@@ -35,6 +35,15 @@ TIPOS_CLIENTE = ("persona_moral", "pfae", "persona_fisica")
 TIPOS_OBLIGADO = ("persona_moral", "persona_fisica")
 CRITERIOS_BC = ("participacion", "control_efectivo")
 CONCLUSIONES_ANEXO = ("control_efectivo", "no_identificado", "parcial")
+MOTIVOS_EXCEPCION_RIESGO = ("socio_comercial", "respaldo_obligado_solidario",
+                            "prueba_comercial")
+# Estatus del padrón con los que el contribuyente opera. REACTIVADO es uno que
+# estuvo suspendido y volvió: para el SAT está vivo igual que ACTIVO.
+ESTATUS_SAT_OPERANDO = ("ACTIVO", "REACTIVADO")
+
+
+def estatus_sat_aceptable(estatus):
+    return (estatus or "").strip().upper() in ESTATUS_SAT_OPERANDO
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +65,8 @@ def expediente_vacio():
                 "regimen_capital": None, "domicilio_fiscal": None,
                 "actividad_economica": None, "regimen_fiscal": None,
                 "inicio_operaciones": None, "situacion_contribuyente": None,
-                "domicilio": {"calle": None, "num_ext": None, "colonia": None,
+                "domicilio": {"calle": None, "num_ext": None, "num_int": None,
+                              "colonia": None,
                               "cp": None, "municipio": None, "estado": None,
                               "pais": None},
                 "telefono": None, "correo": None,
@@ -66,6 +76,7 @@ def expediente_vacio():
         "constitucion": {
             "instrumento": None, "libro": None, "fecha": None,
             "fedatario": None, "notaria": None, "plaza": None,
+            "tipo_fedatario": None,            # "notario" (default) | "corredor"
             "inscripcion_rpc": None, "fecha_inscripcion_rpc": None,
             "cud_economia": None,
             "capital_social": None, "acciones": None, "duracion": None,
@@ -107,11 +118,17 @@ def expediente_vacio():
             "autorizada": {"linea": None, "plazo": None, "mensualidad": None,
                            "fecha": None, "autorizada_por": None,
                            "linea_propuesta_modelo": None},
+            # Línea autorizada sin pasar por el modelo de riesgo. Ver
+            # `_revisar_excepcion_riesgo`. None = no hay excepción.
+            "excepcion_riesgo": None,  # {motivo, justificacion, autorizada_por, fecha}
         },
         "riesgo_pld": {"grado": None, "factores": [], "fecha_evaluacion": None,
                        "evaluado_por": None, "proxima_actualizacion": None},
 
-        "flags": {"domiciliacion": False, "obligado_solidario": False},
+        # buro_en_paquete: la autorización de buró se firma dentro del paquete
+        # en vez de pedirse antes (cuando no hace falta consultar buró previo).
+        "flags": {"domiciliacion": False, "obligado_solidario": False,
+                  "buro_en_paquete": False},
         # Garante persona física que acompaña —no sustituye— al corporativo.
         # Ver el comentario en `documentos_aplicables`.
         "obligado_solidario_pf": {
@@ -155,6 +172,9 @@ def expediente_vacio():
             "responsable": None,
         },
         "quien_lleno": None,
+
+        # El cliente firma solo con Grit Payment. Ver `documentos_aplicables`.
+        "sin_grit_mobility": None,         # {justificacion, decidido_por, fecha}
 
         # Condiciones comerciales del Contrato de Prestación de Servicios de
         # Grit Mobility (monedero de combustible). No son datos KYC, salen de
@@ -227,6 +247,80 @@ def compuertas_grit(exp):
     return fallas
 
 
+def _informado(valor):
+    return valor is not None and (not isinstance(valor, str) or bool(valor.strip()))
+
+
+def _revisar_excepcion_riesgo(exp):
+    """(vigente, fallas) de la excepción al modelo de riesgo.
+
+    Hay líneas que se autorizan sin modelo: un socio comercial al que por
+    decisión de dirección no se le pide información financiera, o un cliente
+    respaldado por un obligado solidario que ya tiene autorizada una línea
+    mayor. La excepción exime de los estados de cuenta y de nada más —el KYC,
+    la línea autorizada y las facultades del representante se siguen
+    exigiendo—, y solo cuenta si dice por qué y quién respondió por ella. Una
+    excepción a medio llenar no exime: se reporta.
+    """
+    exc = _get(exp, "credito.excepcion_riesgo")
+    if not exc:
+        return False, []
+    fallas = []
+    if exc.get("motivo") not in MOTIVOS_EXCEPCION_RIESGO:
+        fallas.append("Excepción de riesgo con motivo inválido: %r (válidos: %s)."
+                      % (exc.get("motivo"), ", ".join(MOTIVOS_EXCEPCION_RIESGO)))
+    if not _informado(exc.get("justificacion")):
+        fallas.append("Excepción de riesgo sin justificación escrita.")
+    if not _informado(exc.get("autorizada_por")):
+        fallas.append("Excepción de riesgo sin nombre de quién la autoriza.")
+    if (exc.get("motivo") == "respaldo_obligado_solidario"
+            and not _get(exp, "flags.obligado_solidario")):
+        fallas.append("Excepción por respaldo de obligado solidario, pero el "
+                      "expediente no tiene obligado solidario.")
+    return not fallas, fallas
+
+
+def excepcion_riesgo_vigente(exp):
+    """True si hay una excepción al modelo de riesgo completa y válida."""
+    return _revisar_excepcion_riesgo(exp)[0]
+
+
+def _revisar_sin_grit_mobility(exp):
+    """(vigente, fallas) de la exclusión de los documentos de Grit Mobility."""
+    sg = _get(exp, "sin_grit_mobility")
+    if not sg:
+        return False, []
+    fallas = []
+    if not _informado(sg.get("justificacion")):
+        fallas.append("Exclusión de Grit Mobility sin justificación escrita.")
+    if not _informado(sg.get("decidido_por")):
+        fallas.append("Exclusión de Grit Mobility sin nombre de quién la decidió.")
+    return not fallas, fallas
+
+
+def _revisar_solo_grit_mobility(exp):
+    """(vigente, fallas) del paquete que lleva únicamente Grit Mobility.
+
+    Es el espejo de `sin_grit_mobility`: un cliente que solo contrata el
+    monedero de combustible, sin línea de crédito de Nea. Cuenta solo con
+    justificación escrita y nombre de quien lo decidió.
+    """
+    sg = _get(exp, "solo_grit_mobility")
+    if not sg:
+        return False, []
+    fallas = []
+    if not _informado(sg.get("justificacion")):
+        fallas.append("Paquete de solo Grit Mobility sin justificación escrita.")
+    if not _informado(sg.get("decidido_por")):
+        fallas.append("Paquete de solo Grit Mobility sin nombre de quién lo decidió.")
+    return not fallas, fallas
+
+
+def solo_grit_mobility_vigente(exp):
+    """True si el cliente solo firma Grit Mobility, con la decisión completa."""
+    return _revisar_solo_grit_mobility(exp)[0]
+
+
 def compuertas_generacion(exp):
     """Evalúa las condiciones que deben cumplirse antes de generar documentos.
 
@@ -239,11 +333,25 @@ def compuertas_generacion(exp):
     if _get(exp, "tipo_cliente") not in TIPOS_CLIENTE:
         fallas.append("tipo_cliente inválido o ausente: %r" % _get(exp, "tipo_cliente"))
     else:
-        fallas.extend(compuertas_grit(exp))
+        sin_grit, fallas_sg = _revisar_sin_grit_mobility(exp)
+        fallas.extend(fallas_sg)
+        if not sin_grit:
+            fallas.extend(compuertas_grit(exp))
+
+    solo_grit, fallas_solo = _revisar_solo_grit_mobility(exp)
+    fallas.extend(fallas_solo)
+    if _get(exp, "solo_grit_mobility") and _get(exp, "sin_grit_mobility"):
+        fallas.append("El expediente dice a la vez solo Grit Mobility y sin Grit "
+                      "Mobility: es una contradicción, hay que quitar una de las dos.")
+
+    excepcion, fallas_exc = _revisar_excepcion_riesgo(exp)
+    fallas.extend(fallas_exc)
 
     # ── línea autorizada, no solicitada ─────────────────────────────────────
-    linea = _get(exp, "credito.autorizada.linea")
-    if not linea:
+    # Solo Grit Mobility no tiene crédito: no hay línea, ni estados de cuenta
+    # contra ella, ni pagarés que el representante tenga que poder suscribir.
+    linea = None if solo_grit else _get(exp, "credito.autorizada.linea")
+    if not linea and not solo_grit:
         fallas.append("Sin línea autorizada. La cotización no es evidencia de línea; "
                       "riesgo debe autorizar o rechazar antes de generar.")
 
@@ -255,10 +363,11 @@ def compuertas_generacion(exp):
         fac = _get(exp, "representante_legal.validado.facultades", {})
         if not _get(exp, "representante_legal.validado.nombre"):
             fallas.append("Representante legal sin validar (etapa 2).")
-        if fac.get("titulos_credito") is not True:
+        if fac.get("titulos_credito") is not True and not solo_grit:
             fallas.append("El representante validado no tiene facultad para suscribir "
                           "títulos de crédito.")
-        if fac.get("individual") is not True and not _get(exp, "cofirmantes"):
+        if (fac.get("individual") is not True and not _get(exp, "cofirmantes")
+                and not solo_grit):
             fallas.append("El poder es mancomunado y no hay cofirmantes con "
                           "identificación en el expediente.")
         limite = fac.get("limite_monto")
@@ -289,11 +398,10 @@ def compuertas_generacion(exp):
 
     # ── estados de cuenta contra la línea autorizada ────────────────────────
     # Se piden para alimentar el módulo de estados de cuenta del modelo de
-    # riesgo. Si la línea se autorizó sin correr el modelo -- respaldada por un
-    # obligado solidario con su propia línea ya autorizada, por decisión de
-    # comité -- no hay modelo al que alimentar, y pedirlos sería una solicitud
-    # de más sin ningún uso.
-    if linea and not _get(exp, "credito.autorizada.sin_modelo"):
+    # riesgo. Con una excepción de riesgo vigente, o una línea autorizada sin
+    # correr el modelo, no hay modelo al que alimentar y pedirlos sería una
+    # solicitud de más sin ningún uso.
+    if linea and not excepcion and not _get(exp, "credito.autorizada.sin_modelo"):
         requeridos = (ESTADOS_CUENTA_AMPLIADO if float(linea) > UMBRAL_ESTADOS_CUENTA
                       else ESTADOS_CUENTA_BASE)
         cuentas = _get(exp, "cuentas_bancarias", [])
@@ -384,6 +492,18 @@ def compuertas_generacion(exp):
 def documentos_aplicables(exp):
     """Lista de claves de documento que corresponden a este expediente."""
     tipo = _get(exp, "tipo_cliente")
+
+    # Solo Grit Mobility: el monedero sin crédito. Sin carátula, PLD ni BC de
+    # Grit Payment, y sin nada que cuelgue del crédito (adenda de obligado
+    # solidario, buró, domiciliación). Tampoco el anexo razonado, que va
+    # dirigido a Grit Payment; el BC de Grit Mobility ya lleva la determinación.
+    if solo_grit_mobility_vigente(exp):
+        if tipo == "persona_moral":
+            docs = ["grit_contrato", "grit_pld_pm"]
+            if _get(exp, "beneficiarios_controladores"):
+                docs.append("grit_beneficiario_controlador")
+            return docs
+        return ["grit_contrato", "grit_pld_pf"]
     docs = ["contrato" if tipo == "persona_moral" else "contrato_pfae"]
 
     # A partir de septiembre 2026, todo cliente firma también su PLD, su
@@ -391,10 +511,18 @@ def documentos_aplicables(exp):
     # Servicios a nombre de Grit Mobility, S.A. de C.V. — los use o no. Son el
     # mismo expediente KYC, solo dirigidos a un sujeto obligado distinto, así
     # que siguen uno a uno a su equivalente de Nea.
-    docs.append("grit_contrato")
+    #
+    # La excepción es `sin_grit_mobility`: un cliente que solo firma con Grit
+    # Payment. Cuenta solo si dice por qué y quién lo decidió; a medio llenar
+    # los documentos siguen saliendo y la compuerta lo reporta.
+    grit, _ = _revisar_sin_grit_mobility(exp)
+    grit = not grit
+    if grit:
+        docs.append("grit_contrato")
     if tipo == "persona_moral":
         docs.append("pld_pm")
-        docs.append("grit_pld_pm")
+        if grit:
+            docs.append("grit_pld_pm")
         # La plantilla trae impresa la "X" de Persona Moral: no sirve para una
         # persona física, que necesitará su propio formato. Si el cliente ya
         # entregó una autorización vigente, pedirle otra es una vuelta de más.
@@ -404,10 +532,12 @@ def documentos_aplicables(exp):
             docs.append("autorizacion_buro")
         if _get(exp, "beneficiarios_controladores"):
             docs.append("beneficiario_controlador")
-            docs.append("grit_beneficiario_controlador")
+            if grit:
+                docs.append("grit_beneficiario_controlador")
     else:
         docs.append("pld_pf")
-        docs.append("grit_pld_pf")
+        if grit:
+            docs.append("grit_pld_pf")
 
     if _requiere_anexo_razonado(exp):
         docs.append("anexo_razonado")
@@ -439,6 +569,9 @@ def documentos_aplicables(exp):
     if _get(exp, "flags.domiciliacion"):
         docs.append("domiciliacion")
 
+    # `flags.buro_en_paquete` ya no agrega nada aquí: la autorización sale sola en
+    # persona moral (arriba), y el formato es el de persona moral. La marca sigue
+    # sirviendo al validador para no pedirla aparte.
     return docs
 
 

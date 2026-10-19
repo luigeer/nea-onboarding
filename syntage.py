@@ -450,6 +450,100 @@ def screening(entidad_id):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Pedir extracciones nuevas
+# ─────────────────────────────────────────────────────────────────────────────
+# Buró de Crédito, BIL y Verificación de Sociedad se cobran aparte. La lista de
+# lo que sí se pide es cerrada: un extractor que no esté aquí no sale, aunque
+# alguien lo agregue a la llamada por descuido.
+EXTRACTORES_CON_COSTO = ("buro_de_credito_report", "bil", "company_verification")
+
+_ARCHIVOS_DECLARACION = {"tax_return.transcript": True, "tax_return.ack_receipt": True,
+                         "tax_return.payment_receipt": True,
+                         "tax_return.financial_statements": True}
+
+# (extractor, opciones sin periodo, lleva periodo). Mismas opciones que usa el
+# onboarding de Syntage, copiadas de una extracción real.
+_PLANTILLAS = (
+    ("invoice", {"pdf": True, "xml": True, "types": ["I", "E", "P", "N", "T"],
+                 "issued": True, "received": False, "complement": -1}, True),
+    ("invoice", {"pdf": True, "xml": True, "types": ["I", "E", "P", "N", "T"],
+                 "issued": False, "received": True, "complement": -1}, True),
+    ("tax_retention", {"pdf": True, "xml": True, "issued": True, "received": True,
+                       "complement": -1}, True),
+    ("monthly_tax_return", {"files": dict(_ARCHIVOS_DECLARACION), "annual": True,
+                            "provisional": True}, True),
+    ("annual_tax_return", {"files": dict(_ARCHIVOS_DECLARACION,
+                                         **{"tax_return.audited_financial_statements": True}),
+                           "annual": True, "provisional": True}, True),
+    ("rif_tax_return", {}, True),
+    ("electronic_accounting", {}, True),
+    ("tax_status", None, False),
+    ("tax_compliance", None, False),
+    ("rpc", None, False),
+    ("rug", None, False),
+    ("background_check", None, False),
+    ("infonavit", None, False),
+)
+EXTRACTORES_SIN_COSTO = tuple(sorted({p[0] for p in _PLANTILLAS}))
+
+
+def cuerpos_extraccion(entidad_id, hoy=None):
+    """Las peticiones para refrescar a un cliente: todo lo que no cuesta, 3 años.
+
+    El periodo arranca el 1 de enero de hace tres años, que es lo que hace el
+    botón "3A" del portal de Syntage.
+    """
+    from datetime import date
+    hoy = hoy or date.today()
+    periodo = {"from": "%d-01-01" % (hoy.year - 3), "to": hoy.isoformat()}
+    cuerpos = []
+    for extractor, opciones, con_periodo in _PLANTILLAS:
+        c = {"entity": "/entities/%s" % entidad_id, "extractor": extractor}
+        if opciones is not None or con_periodo:
+            c["options"] = dict(opciones or {})
+            if con_periodo:
+                c["options"]["period"] = dict(periodo)
+        cuerpos.append(c)
+    return cuerpos
+
+
+def pedir_extraccion(cuerpo, pedir=None):
+    """Manda una petición de extracción. Se niega a mandar una con costo.
+
+    Un 409 quiere decir que ya hay una igual pendiente o corriendo: no es error,
+    es que no hace falta pedirla otra vez.
+    """
+    pedir = pedir or globals()["pedir"]
+    extractor = cuerpo.get("extractor")
+    if extractor not in EXTRACTORES_SIN_COSTO:
+        raise ValueError("El extractor %r tiene costo o no está en la lista cerrada; "
+                         "no se pide." % extractor)
+    try:
+        r = pedir("/extractions", metodo="POST", cuerpo=cuerpo)
+        return {"resultado": "pedida", "extractor": extractor, "id": r.get("id")}
+    except ErrorSyntage as e:
+        if e.codigo == 409:
+            return {"resultado": "en_curso", "extractor": extractor}
+        return {"resultado": "error", "extractor": extractor,
+                "detalle": str(e).splitlines()[0]}
+
+
+def seleccion_para_actualizar(filas, dias_minimos, hoy=None):
+    """Quién toca: sin extracción terminada o con la última más vieja que el
+    umbral, y sin nada corriendo. Los más viejos primero."""
+    from datetime import date
+    hoy = hoy or date.today()
+
+    def antiguedad(f):
+        return ((hoy - date.fromisoformat(f["ult_extr"][:10])).days
+                if f.get("ult_extr") else 10 ** 6)
+
+    elegidas = [f for f in filas
+                if not f.get("corriendo") and antiguedad(f) >= dias_minimos]
+    return sorted(elegidas, key=antiguedad, reverse=True)
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)

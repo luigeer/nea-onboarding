@@ -153,6 +153,23 @@ def test_lee_las_casillas_del_pld_de_persona_fisica():
           "en el PLD de persona física se lee la casilla marcada: %r" % marcadas)
 
 
+def test_lee_la_casilla_de_cedula_profesional():
+    # La casilla de cédula queda pegada a "PROFESIONAL", y el lector del PDF junta
+    # las dos en una sola palabra ("PROFESIONALX"). El PDF estaba bien; el
+    # verificador no reconocía la etiqueta y reportaba el PLD sin casilla.
+    exp = fx.persona_moral()
+    exp["representante_legal"]["validado"]["identificacion"]["tipo"] = "Cédula profesional"
+    datos = ADAPTADORES["pld_pm"](exp)
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta = os.path.join(tmp, "pld.pdf")
+        generar_pld(datos, ruta)
+        marcadas = verificador.casillas_de_identificacion(ruta)
+        h = verificador.verificar_documento("pld_pm", ruta, exp)
+    check(marcadas == {"cedula"}, "se lee la casilla de cédula profesional: %r" % marcadas)
+    check("identificacion" not in reglas(h),
+          "un PLD con cédula profesional bien marcada no tiene hallazgo de identificación")
+
+
 def test_dato_clave_que_no_coincide_con_el_expediente():
     exp = fx.persona_moral()
     datos = ADAPTADORES["contrato"](exp)
@@ -248,6 +265,7 @@ def main():
     test_pld_con_otra_casilla_de_identificacion()
     test_pld_sin_ninguna_casilla_de_identificacion()
     test_lee_las_casillas_del_pld_de_persona_fisica()
+    test_lee_la_casilla_de_cedula_profesional()
     test_dato_clave_que_no_coincide_con_el_expediente()
     test_solo_se_sube_o_firma_un_paquete_verificado_sin_hallazgos()
     test_subir_y_firma_se_niegan_con_un_paquete_sin_verificar()
