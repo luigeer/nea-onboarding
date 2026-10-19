@@ -186,6 +186,48 @@ def _actividades(tablas):
     return out
 
 
+# Renglón de actividad en texto plano: orden, descripción, porcentaje, fecha de
+# inicio y, si la hay, fecha de fin. El porcentaje puede venir pegado a la
+# descripción ("...y otros30 01/10/2022"), por eso el \s* antes de él.
+RE_ACTIVIDAD = re.compile(r"^(\d+)\s+(.+?)\s*(\d{1,3}(?:\.\d+)?)\s+(\d{2}/\d{2}/\d{4})"
+                          r"(?:\s+\d{2}/\d{2}/\d{4})?$")
+
+
+def _actividades_texto(texto):
+    """Lee la sección "Actividades Económicas" del texto plano de la CSF.
+
+    Respaldo para cuando extract_tables solo trae los encabezados: pasa cuando la
+    tabla cruza el salto de página y los renglones quedan sueltos en la página
+    siguiente. Un renglón sin orden ni fecha es la continuación de la descripción
+    anterior; el pie de página ("Página 1 de 3", el sello) no se toma como tal.
+    """
+    out, dentro = [], False
+    for linea in (texto or "").splitlines():
+        linea = linea.strip()
+        if not dentro:
+            dentro = linea.startswith("Actividades Económicas")
+            continue
+        if linea.startswith("Regímenes"):
+            break
+        m = RE_ACTIVIDAD.match(linea)
+        if m:
+            out.append({"orden": int(m.group(1)), "actividad": m.group(2).strip(),
+                        "porcentaje": float(m.group(3)),
+                        "fecha_inicio": _iso_corta(m.group(4))})
+        elif (out and linea and not re.search(r"[\d:|]", linea)
+              and not linea.startswith("Orden")):
+            out[-1]["actividad"] += " " + linea
+    return out
+
+
+def _actividad_principal(actividades):
+    """La de mayor porcentaje, no la primera del orden del SAT."""
+    con_pct = [a for a in actividades if a.get("porcentaje") is not None]
+    if con_pct:
+        return max(con_pct, key=lambda a: a["porcentaje"])
+    return actividades[0] if actividades else None
+
+
 def _regimenes(tablas):
     out = []
     for tb in tablas:
@@ -225,7 +267,7 @@ def extraer_csf(ruta_pdf):
         raise ValueError("No se encontró el RFC. ¿Es una Constancia de Situación Fiscal?")
     rfc = rfc.replace(" ", "").upper()
 
-    actividades = _actividades(tablas)
+    actividades = _actividades(tablas) or _actividades_texto(texto)
     regimenes = _regimenes(tablas)
     alertas = []
 
@@ -305,12 +347,7 @@ def extraer_csf(ruta_pdf):
         alertas.append("Contribuyente con estatus %r: el expediente no debe abrirse." % estatus)
 
     # ── actividad principal, por porcentaje y no por orden ──────────────────
-    principal = None
-    con_pct = [a for a in actividades if a.get("porcentaje") is not None]
-    if con_pct:
-        principal = max(con_pct, key=lambda a: a["porcentaje"])
-    elif actividades:
-        principal = actividades[0]
+    principal = _actividad_principal(actividades)
 
     # ── domicilio ───────────────────────────────────────────────────────────
     g = lambda *ks: next((_norm(pares.get(k)) for k in ks if pares.get(k)), None)
