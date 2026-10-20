@@ -194,7 +194,7 @@ def para_pld_pm(exp):
         "bc_declaracion": _get(exp, "bc_declaracion") or "no_conoce",
         "bc_cantidad": len(benes) or None,
         "tipo_persona": "moral",
-        "constancia_obtenida": True,
+        "constancia_obtenida": _get(exp, "constancia_obtenida") is not False,
         # Casillas de documentación
         "comprobante_tipo": _doc_attr(exp, "comprobante_domicilio", "subtipo", "luz"),
         "poder_tipo": _doc_attr(exp, "poder", "subtipo", "testimonio"),
@@ -231,7 +231,7 @@ def para_pld_pf(exp):
         "tipo_id_oficial": _id_oficial(ident.get("tipo")),
         "constancia_curp": True,
         "comprobante_tipo": _doc_attr(exp, "comprobante_domicilio", "subtipo", "luz"),
-        "constancia_obtenida": True,
+        "constancia_obtenida": _get(exp, "constancia_obtenida") is not False,
         "bc_declaracion": _get(exp, "bc_declaracion") or "no_conoce",
         "bc_cantidad": len(benes) or None,
         "actua_como_apoderado": bool(_get(exp, "actua_como_apoderado")),

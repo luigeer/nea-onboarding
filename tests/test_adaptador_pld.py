@@ -46,9 +46,28 @@ def test_sin_interior_queda_solo_el_exterior():
         check(n == "123", "%s sin interior deja el exterior tal cual (%r)" % (clave, n))
 
 
+def test_constancia_de_existencia_por_defecto_si():
+    e = persona_moral()
+    for clave in ("pld_pm", "grit_pld_pm", "pld_pf"):
+        v = ADAPTADORES[clave](e)["constancia_obtenida"]
+        check(v is True, "%s marca SI en la constancia de existencia por defecto (%r)" % (clave, v))
+
+
+def test_constancia_de_existencia_se_puede_marcar_no():
+    # Hay clientes para los que el comprobante no se obtuvo: el expediente lo
+    # dice y el PLD tiene que marcar NO, no un SI fijo.
+    e = persona_moral()
+    e["constancia_obtenida"] = False
+    for clave in ("pld_pm", "grit_pld_pm", "pld_pf"):
+        v = ADAPTADORES[clave](e)["constancia_obtenida"]
+        check(v is False, "%s marca NO si el expediente lo indica (%r)" % (clave, v))
+
+
 def main():
     test_el_pld_lleva_el_numero_interior()
     test_sin_interior_queda_solo_el_exterior()
+    test_constancia_de_existencia_por_defecto_si()
+    test_constancia_de_existencia_se_puede_marcar_no()
     print()
     if fallas:
         print("%d falla(s)" % len(fallas))
