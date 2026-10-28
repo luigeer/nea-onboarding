@@ -14,6 +14,8 @@ este usa por dentro.
     python nea.py estado <FOLIO>           qué falta para poder generar
     python nea.py generar <FOLIO>          genera el paquete de contratos
     python nea.py subir <FOLIO>            sube el paquete a Drive
+    python nea.py documento <FOLIO> <archivo> <tipo> <sujeto> <fecha>
+                                           copia un documento del cliente a Drive
     python nea.py drive                    revisa las credenciales de Drive
     python nea.py solicitud <FOLIO>        la lista de faltantes para ventas
     python nea.py perfil <FOLIO>           deriva el perfil y captura lo que falta
@@ -401,6 +403,11 @@ def cmd_estado(folio=None):
         for o in abiertas:
             print("  · [%s] %s" % (o.get("severidad") or "?", o.get("descripcion")))
 
+    aviso = _aviso_drive(exp)
+    if aviso:
+        titulo("Drive")
+        print("  %s" % aviso)
+
     fallas = compuertas_generacion(exp)
     if fallas:
         titulo("Falta esto para poder generar los contratos")
@@ -411,6 +418,44 @@ def cmd_estado(folio=None):
         print("  Documentos que se van a generar: %s"
               % ", ".join(documentos_aplicables(exp)))
         print("\n    python nea.py generar %s" % exp["folio"])
+    return 0
+
+
+def _aviso_drive(exp):
+    """Avisa si el expediente registra más documentos de los que hay en Drive.
+
+    Se compara solo el número: los documentos vigentes del expediente contra
+    los archivos de '1 Documentos del cliente'. Así se descubrió tarde que
+    CIL-01 tenía registrados documentos que nunca se copiaron a Drive.
+    Sin Drive (sin credenciales, sin red) se dice y se sigue: el estado del
+    expediente no depende de eso.
+    """
+    vigentes = [d for d in exp.get("documentos", []) if not d.get("superado_por")]
+    if not vigentes:
+        return None
+    try:
+        import drive_cliente
+        en_drive = drive_cliente.documentos_cliente(drive_cliente.servicio(),
+                                                    exp["folio"])
+    except (Exception, SystemExit) as e:
+        return "No se pudo revisar Drive (%s)." % e
+    if len(en_drive) >= len(vigentes):
+        return None
+    return ("El expediente registra %d documento(s) vigente(s) y en "
+            "'1 Documentos del cliente' hay %d archivo(s). Cópialos con:\n"
+            "    python nea.py documento %s <archivo> <tipo> <sujeto> <fecha>"
+            % (len(vigentes), len(en_drive), exp["folio"]))
+
+
+def cmd_documento(folio, ruta, tipo, sujeto, fecha):
+    import drive_cliente
+    svc = drive_cliente.servicio()
+    f, subido = drive_cliente.subir_documento_cliente(svc, folio, ruta, tipo,
+                                                      sujeto, fecha)
+    if subido:
+        print("  Subido a '1 Documentos del cliente': %s" % f["name"])
+    else:
+        print("  Ya estaba en Drive, no se subió de nuevo: %s" % f["name"])
     return 0
 
 
@@ -1309,6 +1354,8 @@ def main(argv):
             return cmd_generar(args[0])
         if orden == "subir" and len(args) == 1:
             return cmd_subir(args[0])
+        if orden == "documento" and len(args) == 5:
+            return cmd_documento(*args)
         if orden == "riesgo" and args:
             return cmd_riesgo(args[0], forzar="--forzar" in args)
         if orden == "estados" and len(args) == 1:

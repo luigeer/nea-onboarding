@@ -28,6 +28,9 @@ Uso:
     python drive_cliente.py bajar FOLIO [directorio]    descarga los documentos del cliente
     python drive_cliente.py subir FOLIO directorio      sube PDFs y manifiesto a 3 Documentos generados
     python drive_cliente.py firmados FOLIO archivo...   sube documentos ya firmados a 4 Documentos firmados
+    python drive_cliente.py cliente FOLIO archivo TIPO SUJETO FECHA
+                                                        copia un documento del cliente a
+                                                        1 Documentos del cliente
     python drive_cliente.py superar FOLIO FILE_ID       mueve un documento a 0 Superados
     python drive_cliente.py reparar FOLIO               completa y renombra subcarpetas
 """
@@ -221,6 +224,40 @@ def descargar(svc, file_id, destino):
     return destino
 
 
+MIME_POR_EXTENSION = {".pdf": "application/pdf", ".jpg": "image/jpeg",
+                      ".jpeg": "image/jpeg", ".png": "image/png"}
+
+
+def subir_documento_cliente(svc, folio, ruta, tipo, sujeto, fecha, banco=None):
+    """Copia un documento del cliente a '1 Documentos del cliente'.
+
+    Devuelve (archivo, subido). El nombre lo pone nomenclatura.nombre_archivo,
+    no ventas. Si ya hay un archivo con ese nombre no se sube otra vez: la
+    copia ya está, y duplicarla solo ensucia la carpeta.
+
+    El original nunca se mueve ni se borra: los documentos de ventas se
+    copian, porque esa carpeta es de ellos.
+    """
+    import nomenclatura
+    extension = os.path.splitext(ruta)[1].lower() or ".pdf"
+    nombre = nomenclatura.nombre_archivo(tipo, sujeto, fecha, banco=banco,
+                                         extension=extension)
+
+    exp = carpeta_expediente(svc, folio)
+    ids = asegurar_estructura(svc, exp["id"])
+    existentes = {f["name"]: f for f in hijos(svc, ids["1"])}
+    if nombre in existentes:
+        return existentes[nombre], False
+
+    from googleapiclient.http import MediaFileUpload
+    media = MediaFileUpload(ruta, mimetype=MIME_POR_EXTENSION.get(
+        extension, "application/octet-stream"))
+    f = svc.files().create(
+        body={"name": nombre, "parents": [ids["1"]]}, media_body=media,
+        fields=CAMPOS, supportsAllDrives=True).execute()
+    return f, True
+
+
 class PaqueteNoVerificado(Exception):
     """El paquete no tiene verificación, o la tiene con hallazgos."""
 
@@ -349,6 +386,10 @@ def main(argv):
     elif orden == "firmados" and len(args) >= 2:
         for f in subir_firmados(svc, args[0], args[1:]):
             print("Subido: %s" % f["name"])
+
+    elif orden == "cliente" and len(args) == 5:
+        f, subido = subir_documento_cliente(svc, *args)
+        print("%s: %s" % ("Subido" if subido else "Ya estaba, no se subió", f["name"]))
 
     elif orden == "superar" and len(args) == 2:
         f = superar(svc, args[0], args[1])
