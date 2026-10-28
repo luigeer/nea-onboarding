@@ -19,6 +19,7 @@ Estructura del diccionario de datos: ver DATOS_EJEMPLO al final del módulo.
 """
 
 import json
+import math
 import os
 import sys
 from datetime import date
@@ -168,7 +169,16 @@ def _fmt_pct(v):
         return None
     if isinstance(v, str):
         return v
-    return "%s%%" % format(v, ".2f").rstrip("0").rstrip(".")
+    # Dos decimales, salvo que redondeen a 0 o a 100 algo que no lo es: una
+    # acción de diez millones no puede leerse "0%" ni el mayoritario "100%".
+    # Ahí se dan dos cifras significativas de lo que lo separa del 0 o del 100.
+    # El redondeo a 8 decimales quita el ruido de flotante de las sumas.
+    v = round(v, 8)
+    dec = 2
+    if 0 < v < 100:
+        distancia = min(v, 100 - v)
+        dec = max(2, 1 - int(math.floor(math.log10(distancia))))
+    return "%s%%" % format(v, ".%df" % dec).rstrip("0").rstrip(".")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,8 +357,11 @@ def _seccion_iii(D, S):
     tot_acc = tot_imp = tot_pct = 0.0
     numerico = True
     for a in D.get("estructura_accionaria", []):
+        acciones = a.get("acciones", "")
+        if isinstance(acciones, int):
+            acciones = format(acciones, ",")
         filas.append([Paragraph((a.get("accionista") or "").upper(), S["cuerpo"]),
-                      Paragraph(str(a.get("acciones", "")), S["cuerpo"]),
+                      Paragraph(str(acciones), S["cuerpo"]),
                       Paragraph(_fmt_moneda(a.get("importe")) or "", S["cuerpo"]),
                       Paragraph(_fmt_pct(a.get("porcentaje")) or "", S["cuerpo"])])
         try:
