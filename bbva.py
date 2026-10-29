@@ -205,3 +205,111 @@ def leer(ruta):
     import pdfplumber
     with pdfplumber.open(ruta) as pdf:
         return encabezado(pdf.pages[0]), movimientos(pdf)
+
+
+# ── SPEI para comprobar en Banxico ───────────────────────────────────────────
+# BBVA no rotula el detalle del SPEI como Banco del Bajio (`ceps.py`, con
+# "BENEFICIARIO:", "CLAVE DE RASTREO:", etc.): despues del renglon del
+# movimiento vienen hasta cuatro renglones sin etiqueta -referencia y banco,
+# cuenta de la contraparte, clave de rastreo, nombre- y el orden es lo unico
+# que dice que es cada uno. Sin etiqueta que avise un error de lectura, un dato
+# mal leido no se nota solo. Por eso cada candidato se valida por su forma
+# -una cuenta son puros digitos, una clave de rastreo no tiene espacios- antes
+# de aceptarlo; si no cuadra, el movimiento se devuelve con `revisar_manual`
+# en vez de con un dato inventado.
+RE_SPEI_HEADER = re.compile(
+    r"^(\d{2}/[A-Z]{3})\s+\d{2}/[A-Z]{3}\s+(T17|T20)\s+SPEI\s*(ENVIADO|RECIBIDO)\s*"
+    r"(.*?)\s+([\d,]+\.\d{2})(?:\s+[\d,]+\.\d{2}){0,2}\s*$")
+# El inicio de CUALQUIER movimiento (no solo SPEI) marca el fin del bloque de
+# detalle del anterior: así se sabe dónde parar aunque falten renglones.
+RE_MOV_GENERICO = re.compile(r"^\d{2}/[A-Z]{3}\s+\d{2}/[A-Z]{3}\s+[A-Z0-9]{3}\b")
+# Pie y encabezado que BBVA repite en cada pagina. Si un bloque de detalle cae
+# justo en el salto de pagina, esto es lo que queda en medio; se filtra antes
+# de leer el detalle para no confundirlo con la cuenta, la clave o el nombre.
+RE_BOILERPLATE = re.compile(
+    r"^(Estado de Cuenta|MAESTRA PYME BBVA|PAGINA \d+ */ *\d+|No\. Cuenta|"
+    r"No\. Cliente|FECHA SALDO|OPER LIQ COD|BBVA MEXICO|"
+    r"Av\. Paseo de la Reforma|Total de Movimientos)")
+RE_REF_BANCO = re.compile(r"Ref\.\s*(\S+)(?:\s+(\d{3}))?\s*$")
+RE_CUENTA_CONTRAPARTE = re.compile(r"^\d{10,20}$")
+RE_CLAVE_RASTREO = re.compile(r"^[A-Z0-9][A-Z0-9\-/]{9,29}$")
+
+
+def _bloques_spei(renglones, anio):
+    """Los SPEI enviados y recibidos, con su detalle para comprobar en Banxico.
+
+    Solo T17 (SPEI ENVIADO) y T20 (SPEI RECIBIDO) traen el bloque de detalle.
+    T09 (TEF RECIBIDO) es un sistema distinto -Banxico solo emite CEP de
+    SPEI- y no lo trae, así que no aparece en el resultado.
+    """
+    limpios = [r for r in renglones if not RE_BOILERPLATE.match(r.strip())]
+
+    fuera = []
+    i = 0
+    while i < len(limpios):
+        m = RE_SPEI_HEADER.match(limpios[i])
+        if not m:
+            i += 1
+            continue
+        fecha_txt, codigo, direccion, banco, monto_txt = m.groups()
+        dia, mes = fecha_txt.split("/")
+        mov = {
+            "fecha": "%s-%02d-%02d" % (anio, MESES[mes], int(dia)),
+            "codigo": codigo,
+            "tipo": "spei_enviado" if direccion == "ENVIADO" else "spei_recibido",
+            "banco_contraparte": banco.strip() or None,
+            "monto": _num(monto_txt),
+            "referencia": None,
+            "cuenta_contraparte": None,
+            "clave_rastreo": None,
+            "contraparte": None,
+            "revisar_manual": True,
+        }
+
+        siguientes = []
+        j = i + 1
+        while (j < len(limpios) and len(siguientes) < 5
+               and not RE_MOV_GENERICO.match(limpios[j])):
+            siguientes.append(limpios[j])
+            j += 1
+
+        if siguientes:
+            ref = RE_REF_BANCO.search(siguientes[0])
+            if ref:
+                mov["referencia"] = ref.group(1)
+
+        if len(siguientes) >= 3:
+            cuenta, clave = siguientes[1].strip(), siguientes[2].strip()
+            if RE_CUENTA_CONTRAPARTE.match(cuenta) and RE_CLAVE_RASTREO.match(clave):
+                mov["cuenta_contraparte"] = cuenta
+                mov["clave_rastreo"] = clave
+                mov["contraparte"] = siguientes[3].strip() if len(siguientes) > 3 else None
+                mov["revisar_manual"] = False
+
+        # Forma alterna: "pago a tercero" sin cuenta beneficiaria propia. El
+        # concepto ("COMPRA VENTA DE DOCUMENTOS") no cupo en el renglon de
+        # referencia y el codigo de banco quedo suelto en el siguiente; donde
+        # iria la cuenta aparece el literal "BANCO A TERCERO" en vez de una
+        # CLABE, y la clave de rastreo se recorre un renglon.
+        if mov["revisar_manual"] and len(siguientes) >= 4:
+            banco_solo, marca, clave = (siguientes[1].strip(), siguientes[2].strip(),
+                                         siguientes[3].strip())
+            if (re.match(r"^\d{3}$", banco_solo) and marca.upper() == "BANCO A TERCERO"
+                    and RE_CLAVE_RASTREO.match(clave)):
+                mov["clave_rastreo"] = clave
+                mov["contraparte"] = siguientes[4].strip() if len(siguientes) > 4 else marca
+                mov["revisar_manual"] = False
+
+        fuera.append(mov)
+        i += 1
+    return fuera
+
+
+def leer_spei(ruta, anio):
+    """Los SPEI de un estado de cuenta de BBVA, con su detalle para Banxico."""
+    import pdfplumber
+    with pdfplumber.open(ruta) as pdf:
+        renglones = []
+        for pagina in pdf.pages:
+            renglones.extend((pagina.extract_text() or "").split("\n"))
+    return _bloques_spei(renglones, anio)
